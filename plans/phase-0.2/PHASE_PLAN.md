@@ -1,7 +1,7 @@
 # Phase 0.2: Hardening for Trustworthiness
 
 **Date:** 2026-04-28
-**Status:** Draft
+**Status:** Reviewed
 
 ## Goals
 
@@ -24,10 +24,13 @@ pub struct ErrorEntry {
 ```
 
 Specific changes:
-- Change `parse_file()` to propagate `SynParse` errors as `ErrorEntry` with severity `error`, rather than returning empty results. This applies to **all** files — including `#[cfg(test)]` modules and inline test module bodies. No parse failure is silently swallowed, regardless of file role.
-- Remove `.unwrap_or_default()` on `build_module_tree` in `run()` — capture errors and emit `ErrorEntry`
+- Change `parse_file()` to propagate `SynParse` errors as `ErrorEntry` with severity `error`, rather than returning empty results. This applies to **all** files that are parsed — including inline `#[cfg(test)]` module bodies and external `#[cfg(test)]` module files. External `#[cfg(test)]` modules are parsed for error reporting purposes but their public items are not extracted (they are test-only by nature). No parse failure is silently swallowed, regardless of file role.
+- Remove `.unwrap_or_default()` on `module_tree::build_module_tree` in `run()`, capture errors as `ErrorEntry` with `kind = "module_tree_error"`
+- Convert `cargo_info::parse_cargo_toml` failures (currently `eprintln!` + `return None`) to `ErrorEntry` with `kind = "toml_parse_error"`
+- Convert `workspace::resolve_crate_roots` empty results (currently `eprintln!` + `return None`) to `ErrorEntry` with `kind = "missing_crate_roots"`
 - Collect `ErrorEntry` values from parallel crate processing (use `Mutex<Vec<ErrorEntry>>` or `rayon::collect` into a shared vec)
-- Emit `ErrorEntry` for orphaned modules (currently `eprintln!` only)
+- Emit `ErrorEntry` for orphaned modules (currently `eprintln!` only) with `kind = "orphaned_module"`
+- Emit `ErrorEntry` for missing workspace members via `Error::MemberNotFound` (already defined but never constructed), replacing the `eprintln!` at `workspace.rs:76`
 - Add `ErrorSeverity` enum to schema (`Error`, `Warning`)
 - Add `ErrorContext` struct with `crate_name`, `module_path`, `line`, `snippet` fields
 
@@ -56,7 +59,7 @@ Fix the four path fallback bugs that produce silently incorrect relative paths:
 1. `module_tree.rs`: `crate_root.parent().unwrap_or_else(|| Path::new("."))` — replace with explicit handling
 2. `module_tree.rs`: same pattern in `process_submodule` for `file_path.parent()`
 3. `module_tree.rs`: same pattern in `process_module_info` for `file_path.parent()`
-4. `workspace.rs`: `.unwrap_or_default()` when workspace section is missing — return `ErrorEntry` instead
+4. `workspace.rs`: `enumerate_members` currently defaults to an empty member list when the `[workspace]` section or `members` key is absent. Change it to return `Err(Error::MissingWorkspaceSection)` (a new variant), which the caller in `run()` converts to an `ErrorEntry` with `kind = "missing_workspace_section"`.
 
 **Why now:** These are independently fixable bugs that produce incorrect output in edge cases.
 
@@ -140,6 +143,31 @@ pub struct ErrorContext {
 | `error` | Data loss — a crate or module's information is incomplete | Output is partial, do not rely on missing data |
 | `warning` | Run completed fully but something unusual happened | Output is complete but may need attention |
 
+### Partial module tree preservation
+
+When a submodule file fails to parse, the module tree builder collects an `ErrorEntry` with `kind = "syn_parse_error"` and continues processing sibling modules rather than aborting the entire crate. This ensures an LLM consumer sees all successfully parsed data even when some files have errors.
+
+Implementation approach: `parse_file` returns errors alongside results rather than propagating via `?` on parse failures. `build_module_tree` similarly collects per-module errors into a `Vec<ErrorEntry>` returned alongside the module tree.
+
+### Error kind taxonomy
+
+The `kind` field on `ErrorEntry` uses the following initial set of machine-readable tags. Consumers should handle unknown `kind` values gracefully, as the set is extensible:
+
+| `kind` value | Meaning |
+|---|---|
+| `toml_parse_error` | A crate's `Cargo.toml` failed to parse |
+| `syn_parse_error` | A Rust source file failed to parse |
+| `missing_crate_roots` | No `lib.rs` or `main.rs` found for a crate |
+| `orphaned_module` | A `mod` declaration references a file that doesn't exist |
+| `module_tree_error` | The module tree builder failed for a crate root |
+| `missing_workspace_section` | The workspace `Cargo.toml` has no `[workspace]` section |
+| `glob_pattern_error` | A glob pattern in `members` failed to evaluate |
+| `member_not_found` | A workspace member path does not exist on disk |
+
+### Error handling crates
+
+The project already uses `thiserror` (for the library `Error` enum with `#[derive(Error)]`) and `anyhow` (for the binary's `Result` type with `.context()`). These are the standard, well-established error handling crates for Rust and no additional crates are needed. The `Error` enum in `schema.rs` gains `MissingWorkspaceSection` as a new variant; existing variants (`SynParse`, `MemberNotFound`, etc.) are retained and populated where they were previously unused.
+
 ### Sequence of execution
 
 ```
@@ -170,3 +198,7 @@ None resolved. See decisions above.
 - `ErrorContext` includes `line: Option<usize>` for source location (resolves Open Question 1)
 - `severity` field with `Error`/`Warning` variants is the approach (resolves Open Question 2 — no `recoverable` boolean)
 - Every parse failure produces an `error`-severity `ErrorEntry`. With TDD principles, we care about test quality — silent failures in any file undermine trust in the output. (Resolves Open Question 3)
+- **Partial results** — a single submodule parse failure collects an `ErrorEntry` and continues with siblings, rather than aborting the entire crate. This maximizes information for LLM consumers. (Resolves architectural gap from review)
+- **External `#[cfg(test)]` modules** are parsed for error reporting but their public items are not extracted. This ensures parse failures in test files are visible without injecting test-only items into the API surface.
+- **`kind` taxonomy** uses the initial 8-value set defined in Design Notes. Consumers handle unknown values gracefully.
+- **Error handling crates** remain `thiserror` + `anyhow`. No additional error handling crates are introduced.
