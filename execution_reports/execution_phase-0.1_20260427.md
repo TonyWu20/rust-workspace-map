@@ -89,3 +89,16 @@
       either src/lib.rs, src/main.rs, a [lib] section, or [[bin]] section must be present
     ```
 
+### TASK-8: Create src/render.rs with render_json and render_to_writer
+- **Status**: ✗ Failed
+- **Validation output**:
+  - `test -f src/render.rs`: PASSED
+  - `cargo check --workspace 2>&1`: FAILED (exit 101)
+    ```
+    error: failed to parse manifest at `/Users/tony/programming/rust-workspace-map/Cargo.toml`
+    
+    Caused by:
+      no targets specified in the manifest
+      either src/lib.rs, src/main.rs, a [lib] section, or [[bin]] section must be present
+    ```
+
