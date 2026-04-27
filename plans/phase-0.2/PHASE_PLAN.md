@@ -74,14 +74,30 @@ Expand from 3 to 8+ integration tests covering error paths, edge cases, and comp
 
 **Why now:** After Goals 1-3, error behavior and edge cases need explicit regression coverage.
 
-### Goal 5 — Code Quality & Polish (Small)
+### Goal 5 — Remove All Clippy Suppressions (Small)
 
-- Reduce `#[allow]` clippy suppressions: fix or justify each one
-- Verify `cargo clippy -- -D warnings` passes clean
+**No `#![allow(clippy::*)]` remains in the codebase.** Every suppression is removed:
+
+| Suppression | Disposition |
+|-------------|-------------|
+| `missing_errors_doc` | Add `# Errors` doc sections to functions returning `Result` |
+| `must_use_candidate` | Add `#[must_use]` to pure functions as clippy suggests |
+| `doc_markdown` | Fix doc comments to backtick-code identifiers |
+| `uninlined_format_args` | Inline all format arguments |
+| `redundant_closure` | Replace closures with direct function references |
+| `collapsible_if` | Merge nested `if` expressions |
+| `needless_pass_by_value` | Change to `&` references where callers don't need ownership |
+| `needless_borrow` | Remove unnecessary borrows |
+| `redundant_closure_for_method_calls` | Use method directly instead of closure wrapper |
+
+No crate-level suppressions are converted to per-item suppressions. If a lint fires on legitimate code, the code is changed, not silenced.
+
+Also:
 - Remove unused error variants (if any remain after Goal 1)
 - Standardize error message style across `eprintln!` calls
+- Verify `cargo clippy -- -D warnings` passes clean
 
-**Why now:** Cleanup pass after all structural changes are complete.
+**Why now:** 9 crate-level suppressions mask real code quality issues. Each fix is mechanical but individually important — they compound to produce cleaner, more idiomatic Rust.
 
 ## Scope Boundaries
 
