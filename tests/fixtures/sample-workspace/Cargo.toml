@@ -1,0 +1,6 @@
+[workspace]
+members = ["core", "engine"]
+resolver = "2"
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
