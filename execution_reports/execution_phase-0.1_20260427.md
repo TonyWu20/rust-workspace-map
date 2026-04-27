@@ -76,3 +76,16 @@
       either src/lib.rs, src/main.rs, a [lib] section, or [[bin]] section must be present
     ```
 
+### TASK-7: Create src/cross_refs.rs with compute function
+- **Status**: ✗ Failed
+- **Validation output**:
+  - `test -f src/cross_refs.rs`: PASSED
+  - `cargo check --workspace 2>&1`: FAILED (exit 101)
+    ```
+    error: failed to parse manifest at `/Users/tony/programming/rust-workspace-map/Cargo.toml`
+    
+    Caused by:
+      no targets specified in the manifest
+      either src/lib.rs, src/main.rs, a [lib] section, or [[bin]] section must be present
+    ```
+
