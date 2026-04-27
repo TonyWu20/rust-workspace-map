@@ -139,3 +139,40 @@
       --> src/lib.rs:18:23
     ```
 
+### TASK-10: Create src/main.rs with clap CLI and main() entry point
+- **Status**: ✗ Failed
+- **Validation output**:
+  - `cargo check`: FAILED (exit 101)
+    ```
+    Checking rust-workspace-map v0.1.0 (/Users/tony/programming/rust-workspace-map)
+    error[E0583]: file not found for module `file_parser`
+     --> src/lib.rs:5:1
+      |
+    5 | pub mod file_parser;
+      | ^^^^^^^^^^^^^^^^^^^^
+      |
+      = help: to create the module `file_parser`, create file "src/file_parser.rs" or "src/file_parser/mod.rs"
+      = note: if there is a `mod file_parser` elsewhere in the crate already, import it with `use crate::...` instead
+    
+    error: `Option<_>` already implies a default of `None`, so explicit #[builder(default)] is redundant
+      --> src/schema.rs:46:15
+       |
+    46 |     #[builder(default)]
+       |               ^^^^^^^
+    
+    warning: unused import: `PathBuf`
+      --> src/lib.rs:18:23
+       |
+    18 | use std::path::{Path, PathBuf};
+       |                       ^^^^^^^
+       |
+       = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+    
+    warning: unused variable: `parent_dir`
+       --> src/module_tree.rs:185:5
+        |
+    185 |     parent_dir: &Path,
+        |     ^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_parent_dir`
+        |
+    ```
+
