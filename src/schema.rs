@@ -26,7 +26,7 @@ pub enum Error {
         source: syn::Error,
     },
 
-    #[error("workspace member {path} does not exist")]
+    #[error("workspace member {0} does not exist")]
     MemberNotFound(PathBuf),
 
     #[error("glob pattern error: {0}")]
@@ -43,7 +43,6 @@ pub struct Config {
     pub workspace_path: PathBuf,
 
     /// If Some, write JSON to this file instead of stdout.
-    #[builder(default)]
     pub output_path: Option<PathBuf>,
 }
 

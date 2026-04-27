@@ -1,4 +1,13 @@
 #![warn(clippy::pedantic)]
+#![allow(clippy::missing_errors_doc)]
+#![allow(clippy::must_use_candidate)]
+#![allow(clippy::doc_markdown)]
+#![allow(clippy::uninlined_format_args)]
+#![allow(clippy::redundant_closure)]
+#![allow(clippy::collapsible_if)]
+#![allow(clippy::needless_pass_by_value)]
+#![allow(clippy::needless_borrow)]
+#![allow(clippy::redundant_closure_for_method_calls)]
 
 pub mod cargo_info;
 pub mod cross_refs;
@@ -15,7 +24,7 @@ use rayon::prelude::*;
 use schema::{
     CrateInfo, CrateType, ErrorEntry, ModuleInfo, WorkspaceInfo, WorkspaceMap,
 };
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 /// Run the full workspace mapping pipeline.
 ///
@@ -27,7 +36,7 @@ pub fn run(config: Config) -> anyhow::Result<()> {
     let workspace_root = workspace::find_workspace_root(&config.workspace_path)?;
     let member_dirs = workspace::enumerate_members(&workspace_root)?;
 
-    let mut errors: Vec<ErrorEntry> = Vec::new();
+    let errors: Vec<ErrorEntry> = Vec::new();
 
     let mut crate_infos: Vec<CrateInfo> = member_dirs
         .par_iter()
@@ -60,7 +69,7 @@ pub fn run(config: Config) -> anyhow::Result<()> {
             {
                 CrateType::LibAndBin
             } else {
-                roots.first().map(|(_, t)| *t).unwrap_or(CrateType::Lib)
+                roots.first().map_or(CrateType::Lib, |(_, t)| *t)
             };
 
             let pkg_name = pkg.name.clone();

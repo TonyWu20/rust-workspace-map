@@ -23,10 +23,19 @@ fn main() -> anyhow::Result<()> {
     let workspace_path = std::path::absolute(&cli.path)
         .map_err(|e| anyhow::anyhow!("invalid path {}: {}", cli.path.display(), e))?;
 
-    let config = rust_workspace_map::Config::builder()
-        .workspace_path(workspace_path)
-        .output_path(cli.output)
-        .build();
+    let config = match cli.output {
+        Some(ref output) => {
+            rust_workspace_map::Config::builder()
+                .workspace_path(workspace_path)
+                .output_path(output.clone())
+                .build()
+        }
+        None => {
+            rust_workspace_map::Config::builder()
+                .workspace_path(workspace_path)
+                .build()
+        }
+    };
 
     rust_workspace_map::run(config)
 }

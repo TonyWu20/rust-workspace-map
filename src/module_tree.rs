@@ -182,7 +182,7 @@ fn process_module_info(
     visibility: &str,
     file_info: &FileInfo,
     items: &[syn::Item],
-    parent_dir: &Path,
+    _parent_dir: &Path,
     visited: &mut HashSet<PathBuf>,
 ) -> Result<Vec<ModuleInfo>> {
     let mut modules = vec![build_module_info(

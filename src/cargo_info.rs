@@ -15,9 +15,18 @@ pub fn parse_cargo_toml(path: &Path) -> Result<(PackageInfo, DepInfo)> {
         source,
     })?;
 
+    let default_package = || {
+        PackageInfo::builder()
+            .name("unknown".to_string())
+            .version("0.0.0".to_string())
+            .edition("2021".to_string())
+            .crate_type(CrateType::Lib)
+            .build()
+    };
+
     let package = parsed
         .get("package")
-        .map(|p| {
+        .map_or_else(default_package, |p| {
             PackageInfo::builder()
                 .name(
                     p.get("name")
@@ -39,14 +48,6 @@ pub fn parse_cargo_toml(path: &Path) -> Result<(PackageInfo, DepInfo)> {
                 )
                 .crate_type(CrateType::Lib)
                 .build()
-        })
-        .unwrap_or_else(|| {
-            PackageInfo::builder()
-                .name("unknown".to_string())
-                .version("0.0.0".to_string())
-                .edition("2021".to_string())
-                .crate_type(CrateType::Lib)
-                .build()
         });
 
     let extract_deps = |section: &str| -> (Vec<String>, Vec<String>) {
@@ -60,7 +61,7 @@ pub fn parse_cargo_toml(path: &Path) -> Result<(PackageInfo, DepInfo)> {
                     let is_workspace_dep = value
                         .as_table()
                         .and_then(|t| t.get("workspace"))
-                        .and_then(|v| v.as_bool())
+                        .and_then(toml::Value::as_bool)
                         == Some(true);
                     if is_workspace_dep {
                         workspace_members.push(key.clone());

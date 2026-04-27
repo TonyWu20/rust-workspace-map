@@ -314,6 +314,7 @@ dependencies = [
  "bon",
  "clap",
  "glob",
+ "proc-macro2",
  "rayon",
  "serde",
  "serde_json",
