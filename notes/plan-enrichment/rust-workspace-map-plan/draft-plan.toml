@@ -1,0 +1,2052 @@
+[meta]
+title = "rust-workspace-map: Greenfield Implementation"
+source_branch = "main"
+created = "2026-04-27"
+
+[dependencies]
+TASK-3 = ["TASK-2"]
+TASK-4 = ["TASK-2"]
+TASK-5 = ["TASK-2"]
+TASK-6 = ["TASK-2", "TASK-5"]
+TASK-7 = ["TASK-2"]
+TASK-8 = ["TASK-2"]
+TASK-9 = ["TASK-1", "TASK-2", "TASK-3", "TASK-4", "TASK-5", "TASK-6", "TASK-7", "TASK-8"]
+TASK-10 = ["TASK-9"]
+TASK-11 = ["TASK-9", "TASK-10"]
+
+[tasks.TASK-1]
+description = "Create Cargo.toml with all dependencies"
+type = "create"
+acceptance = [
+    "test -f Cargo.toml",
+]
+
+[[tasks.TASK-1.changes]]
+file = "Cargo.toml"
+after = '''
+[package]
+name = "rust-workspace-map"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+syn = { version = "2", features = ["full", "extra-traits"] }
+walkdir = "2"
+toml = "0.8"
+rayon = "1"
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+bon = "3"
+thiserror = "2"
+glob = "0.3"
+
+[dev-dependencies]
+cargo-llvm-cov = "0.6"
+'''
+
+[tasks.TASK-2]
+description = "Create src/schema.rs with all data types, Error enum, and Result alias"
+type = "create"
+acceptance = [
+    "test -f src/schema.rs",
+]
+
+[[tasks.TASK-2.changes]]
+file = "src/schema.rs"
+after = '''
+use std::collections::BTreeMap;
+use std::path::PathBuf;
+
+// ── Error type ──────────────────────────────────────────────────────────
+
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+    #[error("no workspace root found starting from {0}")]
+    WorkspaceRootNotFound(PathBuf),
+
+    #[error("failed to read file {path}: {source}")]
+    FileRead {
+        path: PathBuf,
+        source: std::io::Error,
+    },
+
+    #[error("failed to parse {path}: {source}")]
+    TomlParse {
+        path: PathBuf,
+        source: toml::de::Error,
+    },
+
+    #[error("failed to parse Rust source {path}: {source}")]
+    SynParse {
+        path: PathBuf,
+        source: syn::Error,
+    },
+
+    #[error("workspace member {path} does not exist")]
+    MemberNotFound(PathBuf),
+
+    #[error("glob pattern error: {0}")]
+    GlobPattern(String),
+}
+
+pub type Result<T> = std::result::Result<T, Error>;
+
+// ── Config ──────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, bon::Builder)]
+pub struct Config {
+    /// Absolute, canonical path to the workspace root (or a subdirectory within it).
+    pub workspace_path: PathBuf,
+
+    /// If Some, write JSON to this file instead of stdout.
+    #[builder(default)]
+    pub output_path: Option<PathBuf>,
+}
+
+// ── Crate type ──────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum CrateType {
+    Lib,
+    Bin,
+    #[serde(rename = "lib_and_bin")]
+    LibAndBin,
+}
+
+// ── Top-level output ────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, serde::Serialize, bon::Builder)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceMap {
+    pub workspace: WorkspaceInfo,
+    pub crates: Vec<CrateInfo>,
+    pub cross_references: CrossReferences,
+
+    #[builder(default)]
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub errors: Vec<ErrorEntry>,
+
+    /// Not serialized — used for path relativization during construction.
+    #[builder(default)]
+    #[serde(skip)]
+    pub workspace_root: PathBuf,
+}
+
+#[derive(Debug, Clone, serde::Serialize, bon::Builder)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceInfo {
+    pub root: String,
+    pub workspace_name: String,
+}
+
+// ── Crate ───────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, serde::Serialize, bon::Builder)]
+#[serde(rename_all = "camelCase")]
+pub struct CrateInfo {
+    pub name: String,
+    pub root: String,
+    pub package: PackageInfo,
+    pub modules: Vec<ModuleInfo>,
+    pub deps: DepInfo,
+
+    #[builder(default)]
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub cross_crate_imports: Vec<CrossCrateImport>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, bon::Builder)]
+#[serde(rename_all = "camelCase")]
+pub struct PackageInfo {
+    pub name: String,
+    pub version: String,
+    pub edition: String,
+    pub crate_type: CrateType,
+}
+
+// ── Dependencies ────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, serde::Serialize, Default, bon::Builder)]
+#[serde(rename_all = "camelCase")]
+pub struct DepInfo {
+    #[builder(default)]
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub normal: Vec<String>,
+
+    #[builder(default)]
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub dev: Vec<String>,
+
+    #[builder(default)]
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub workspace_members: Vec<String>,
+}
+
+// ── Module ──────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, serde::Serialize, bon::Builder)]
+#[serde(rename_all = "camelCase")]
+pub struct ModuleInfo {
+    pub path: String,
+    pub file: String,
+    pub visibility: String,
+
+    #[builder(default)]
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub public_items: Vec<PublicItem>,
+
+    #[builder(default)]
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub imports: Vec<Import>,
+
+    #[builder(default)]
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub re_exports: Vec<ReExport>,
+
+    #[builder(default)]
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub submodules: Vec<String>,
+}
+
+// ── Public items ────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, serde::Serialize, bon::Builder)]
+#[serde(rename_all = "camelCase")]
+pub struct PublicItem {
+    pub kind: ItemKind,
+    pub name: String,
+    pub file: String,
+    pub line: usize,
+    pub attrs: ItemAttrs,
+    pub generics: String,
+    pub visibility: String,
+
+    #[builder(default)]
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub fields: Vec<String>,
+
+    #[builder(default)]
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub variants: Vec<String>,
+
+    #[builder(default)]
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub impls: Vec<ImplInfo>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ItemKind {
+    Struct,
+    Enum,
+    Trait,
+    Fn,
+    Type,
+    Macro,
+}
+
+#[derive(Debug, Clone, serde::Serialize, Default, bon::Builder)]
+#[serde(rename_all = "camelCase")]
+pub struct ItemAttrs {
+    #[builder(default)]
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub derive: Vec<String>,
+
+    #[builder(default)]
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub doc: Vec<String>,
+}
+
+// ── Impl blocks ─────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, serde::Serialize, bon::Builder)]
+#[serde(rename_all = "camelCase")]
+pub struct ImplInfo {
+    /// Serialized as "type" in JSON.
+    #[serde(rename = "type")]
+    pub type_: String,
+    pub items: Vec<ImplItem>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, bon::Builder)]
+#[serde(rename_all = "camelCase")]
+pub struct ImplItem {
+    pub kind: ImplItemKind,
+    pub name: String,
+    pub params: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ImplItemKind {
+    Fn,
+    Type,
+    Const,
+}
+
+// ── Imports / Re-exports ────────────────────────────────────────────────
+
+#[derive(Debug, Clone, serde::Serialize, bon::Builder)]
+#[serde(rename_all = "camelCase")]
+pub struct Import {
+    pub path: String,
+    pub line: usize,
+}
+
+#[derive(Debug, Clone, serde::Serialize, bon::Builder)]
+#[serde(rename_all = "camelCase")]
+pub struct ReExport {
+    pub import_path: String,
+    pub export_path: String,
+    pub line: usize,
+}
+
+// ── Cross-crate ─────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, serde::Serialize, bon::Builder)]
+#[serde(rename_all = "camelCase")]
+pub struct CrossCrateImport {
+    pub import_path: String,
+    pub target_crate: String,
+    pub symbol: String,
+    pub line: usize,
+}
+
+#[derive(Debug, Clone, serde::Serialize, Default, bon::Builder)]
+#[serde(rename_all = "camelCase")]
+pub struct CrossReferences {
+    #[builder(default)]
+    pub types: BTreeMap<String, TypeRef>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, bon::Builder)]
+#[serde(rename_all = "camelCase")]
+pub struct TypeRef {
+    pub crate_name: String,
+    pub kind: String,
+
+    #[builder(default)]
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub imported_by: Vec<String>,
+
+    #[builder(default)]
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub exported_by: Vec<String>,
+}
+
+// ── Internal types ──────────────────────────────────────────────────────
+
+/// Internal intermediate type consumed by module_tree.
+#[derive(Debug, Clone, Default)]
+pub struct FileInfo {
+    pub public_items: Vec<PublicItem>,
+    pub imports: Vec<Import>,
+    pub re_exports: Vec<ReExport>,
+    pub submodules: Vec<SubmoduleDecl>,
+    pub impls: Vec<ImplInfo>,
+}
+
+#[derive(Debug, Clone, bon::Builder)]
+pub struct SubmoduleDecl {
+    pub name: String,
+    #[builder(default)]
+    pub is_test: bool,
+}
+
+// ── Error reporting ─────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, serde::Serialize, bon::Builder)]
+#[serde(rename_all = "camelCase")]
+pub struct ErrorEntry {
+    pub file: String,
+    #[builder(default)]
+    pub line: usize,
+    pub message: String,
+}
+'''
+
+[tasks.TASK-3]
+description = "Create src/workspace.rs with find_workspace_root, enumerate_members, resolve_crate_roots"
+type = "create"
+acceptance = [
+    "test -f src/workspace.rs",
+]
+
+[[tasks.TASK-3.changes]]
+file = "src/workspace.rs"
+after = '''
+use crate::schema::{CrateType, Error, Result};
+use std::path::{Path, PathBuf};
+
+/// Walk up the directory tree from `start_path` to find a `Cargo.toml`
+/// containing a `[workspace]` section. Returns the directory containing it.
+pub fn find_workspace_root(start_path: &Path) -> Result<PathBuf> {
+    for ancestor in start_path.ancestors() {
+        let cargo_toml = ancestor.join("Cargo.toml");
+        if cargo_toml.exists() {
+            let content = std::fs::read_to_string(&cargo_toml).map_err(|source| Error::FileRead {
+                path: cargo_toml.clone(),
+                source,
+            })?;
+            if content.contains("[workspace]") {
+                return Ok(ancestor.to_path_buf());
+            }
+        }
+    }
+    Err(Error::WorkspaceRootNotFound(start_path.to_path_buf()))
+}
+
+/// Parse the workspace `Cargo.toml`, resolve member paths (including glob
+/// patterns), apply `exclude` list, and return absolute paths to each member
+/// crate directory.
+pub fn enumerate_members(root: &Path) -> Result<Vec<PathBuf>> {
+    let cargo_toml_path = root.join("Cargo.toml");
+    let content = std::fs::read_to_string(&cargo_toml_path).map_err(|source| Error::FileRead {
+        path: cargo_toml_path.clone(),
+        source,
+    })?;
+
+    let parsed: toml::Value = toml::from_str(&content).map_err(|source| Error::TomlParse {
+        path: cargo_toml_path.clone(),
+        source,
+    })?;
+
+    let members: Vec<String> = parsed
+        .get("workspace")
+        .and_then(|w| w.get("members"))
+        .and_then(|m| m.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let exclude: Vec<String> = parsed
+        .get("workspace")
+        .and_then(|w| w.get("exclude"))
+        .and_then(|e| e.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let mut result = Vec::new();
+    for member in &members {
+        let has_glob = member.contains('*') || member.contains('?') || member.contains('[');
+        if has_glob {
+            let pattern = root.join(member).to_string_lossy().to_string();
+            let iter = glob::glob(&pattern).map_err(|e| Error::GlobPattern(e.to_string()))?;
+            for entry in iter {
+                let path = entry.map_err(|e| Error::GlobPattern(e.to_string()))?;
+                if path.is_dir() && path.join("Cargo.toml").exists() {
+                    result.push(path);
+                }
+            }
+        } else {
+            let path = root.join(member);
+            if path.is_dir() && path.join("Cargo.toml").exists() {
+                result.push(path);
+            } else {
+                eprintln!(
+                    "warning: workspace member {} does not exist",
+                    path.display()
+                );
+            }
+        }
+    }
+
+    result.retain(|p| {
+        let name = p
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string();
+        !exclude.contains(&name)
+    });
+
+    result.sort();
+    result.dedup();
+    Ok(result)
+}
+
+/// For a crate directory, determine its entry-point file(s).
+/// Returns `(path, CrateType)` pairs — one for `src/lib.rs` (Lib),
+/// one for `src/main.rs` (Bin), or empty if neither exists.
+pub fn resolve_crate_roots(crate_dir: &Path) -> Vec<(PathBuf, CrateType)> {
+    let mut roots = Vec::new();
+    let lib_rs = crate_dir.join("src").join("lib.rs");
+    let main_rs = crate_dir.join("src").join("main.rs");
+    if lib_rs.exists() {
+        roots.push((lib_rs, CrateType::Lib));
+    }
+    if main_rs.exists() {
+        roots.push((main_rs, CrateType::Bin));
+    }
+    roots
+}
+'''
+
+[tasks.TASK-4]
+description = "Create src/cargo_info.rs with parse_cargo_toml"
+type = "create"
+acceptance = [
+    "test -f src/cargo_info.rs",
+]
+
+[[tasks.TASK-4.changes]]
+file = "src/cargo_info.rs"
+after = '''
+use crate::schema::{CrateType, DepInfo, Error, PackageInfo, Result};
+use std::path::Path;
+
+/// Parse a crate's `Cargo.toml` and return package metadata and dependency lists.
+/// The returned `PackageInfo.crate_type` is set to `Lib` by default; the caller
+/// overrides it based on `workspace::resolve_crate_roots`.
+pub fn parse_cargo_toml(path: &Path) -> Result<(PackageInfo, DepInfo)> {
+    let content = std::fs::read_to_string(path).map_err(|source| Error::FileRead {
+        path: path.to_path_buf(),
+        source,
+    })?;
+
+    let parsed: toml::Value = toml::from_str(&content).map_err(|source| Error::TomlParse {
+        path: path.to_path_buf(),
+        source,
+    })?;
+
+    let package = parsed
+        .get("package")
+        .map(|p| {
+            PackageInfo::builder()
+                .name(
+                    p.get("name")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("unknown")
+                        .to_string(),
+                )
+                .version(
+                    p.get("version")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("0.0.0")
+                        .to_string(),
+                )
+                .edition(
+                    p.get("edition")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("2021")
+                        .to_string(),
+                )
+                .crate_type(CrateType::Lib)
+                .build()
+        })
+        .unwrap_or_else(|| {
+            PackageInfo::builder()
+                .name("unknown".to_string())
+                .version("0.0.0".to_string())
+                .edition("2021".to_string())
+                .crate_type(CrateType::Lib)
+                .build()
+        });
+
+    let extract_deps = |section: &str| -> (Vec<String>, Vec<String>) {
+        let mut normal = Vec::new();
+        let mut workspace_members = Vec::new();
+        if let Some(table) = parsed.get(section).and_then(|v| v.as_table()) {
+            let mut keys: Vec<&String> = table.keys().collect();
+            keys.sort();
+            for key in keys {
+                if let Some(value) = table.get(key) {
+                    let is_workspace_dep = value
+                        .as_table()
+                        .and_then(|t| t.get("workspace"))
+                        .and_then(|v| v.as_bool())
+                        == Some(true);
+                    if is_workspace_dep {
+                        workspace_members.push(key.clone());
+                    } else {
+                        normal.push(key.clone());
+                    }
+                }
+            }
+        }
+        (normal, workspace_members)
+    };
+
+    let (normal_deps, mut ws_deps) = extract_deps("dependencies");
+    let (dev_deps, ws_dev_deps) = extract_deps("dev-dependencies");
+    ws_deps.extend(ws_dev_deps);
+    ws_deps.sort();
+    ws_deps.dedup();
+
+    let deps = DepInfo::builder()
+        .normal(normal_deps)
+        .dev(dev_deps)
+        .workspace_members(ws_deps)
+        .build();
+
+    Ok((package, deps))
+}
+'''
+
+[tasks.TASK-5]
+description = "Create src/file_parser.rs with parse_file and all extractor functions"
+type = "create"
+acceptance = [
+    "test -f src/file_parser.rs",
+]
+
+[[tasks.TASK-5.changes]]
+file = "src/file_parser.rs"
+after = '''
+use crate::schema::{
+    Error, FileInfo, ImplInfo, ImplItem, ImplItemKind, Import, ItemAttrs, ItemKind, PublicItem,
+    ReExport, Result, SubmoduleDecl,
+};
+use std::path::Path;
+
+// ── parse_file ──────────────────────────────────────────────────────────
+
+/// Read and parse a Rust source file. Returns the raw `syn::File` AST (needed
+/// by `module_tree` for inline module item extraction) and the extracted
+/// `FileInfo`. On parse failure, warns to stderr and returns empty results.
+pub fn parse_file(path: &Path) -> Result<(syn::File, FileInfo)> {
+    let content = std::fs::read_to_string(path).map_err(|source| Error::FileRead {
+        path: path.to_path_buf(),
+        source,
+    })?;
+
+    let file = match syn::parse_file(&content) {
+        Ok(f) => f,
+        Err(e) => {
+            eprintln!("warning: failed to parse {}: {}", path.display(), e);
+            let empty = syn::File {
+                shebang: None,
+                attrs: vec![],
+                items: vec![],
+            };
+            let info = FileInfo::default();
+            return Ok((empty, info));
+        }
+    };
+
+    let info = FileInfo {
+        public_items: extract_public_items(&file.items),
+        imports: extract_imports(&file.items),
+        re_exports: extract_re_exports(&file.items),
+        submodules: extract_submodules(&file.items),
+        impls: extract_impls(&file.items),
+    };
+
+    Ok((file, info))
+}
+
+// ── extract_public_items ────────────────────────────────────────────────
+
+/// Extract all items with any form of `pub` visibility (excluding `Inherited`).
+/// Results are sorted by name then line for deterministic output.
+pub fn extract_public_items(items: &[syn::Item]) -> Vec<PublicItem> {
+    let mut result: Vec<PublicItem> = items
+        .iter()
+        .filter(|item| !is_visibility_inherited(item))
+        .filter_map(into_public_item)
+        .collect();
+    result.sort_by(|a, b| a.name.cmp(&b.name).then(a.line.cmp(&b.line)));
+    result
+}
+
+// ── extract_imports ─────────────────────────────────────────────────────
+
+/// Extract all `use` statements. Braced imports are expanded to individual
+/// entries. Results sorted by path for determinism.
+pub fn extract_imports(items: &[syn::Item]) -> Vec<Import> {
+    let mut result: Vec<Import> = items
+        .iter()
+        .filter_map(|item| {
+            if let syn::Item::Use(u) = item {
+                Some(flatten_use_tree(&u.tree, String::new(), line_of_item(item)))
+            } else {
+                None
+            }
+        })
+        .flatten()
+        .collect();
+    result.sort_by(|a, b| a.path.cmp(&b.path));
+    result
+}
+
+// ── extract_re_exports ──────────────────────────────────────────────────
+
+/// Extract `pub use` re-exports. Results sorted by export_path.
+pub fn extract_re_exports(items: &[syn::Item]) -> Vec<ReExport> {
+    let mut result: Vec<ReExport> = items
+        .iter()
+        .filter_map(|item| {
+            if let syn::Item::Use(u) = item {
+                if matches!(u.vis, syn::Visibility::Public(_)) {
+                    Some(extract_re_exports_from_tree(
+                        &u.tree,
+                        String::new(),
+                        line_of_item(item),
+                    ))
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        })
+        .flatten()
+        .collect();
+    result.sort_by(|a, b| a.export_path.cmp(&b.export_path));
+    result
+}
+
+// ── extract_submodules ──────────────────────────────────────────────────
+
+/// Extract `mod` declarations. Detects `#[cfg(test)]` via literal token
+/// matching. Results sorted by name.
+pub fn extract_submodules(items: &[syn::Item]) -> Vec<SubmoduleDecl> {
+    let mut result: Vec<SubmoduleDecl> = items
+        .iter()
+        .filter_map(|item| {
+            if let syn::Item::Mod(m) = item {
+                let is_test = m.attrs.iter().any(|attr| {
+                    if !attr.path().is_ident("cfg") {
+                        return false;
+                    }
+                    if let syn::Meta::List(list) = &attr.meta {
+                        let tokens = list.tokens.to_string();
+                        tokens.trim() == "test"
+                    } else {
+                        false
+                    }
+                });
+                Some(SubmoduleDecl {
+                    name: m.ident.to_string(),
+                    is_test,
+                })
+            } else {
+                None
+            }
+        })
+        .collect();
+    result.sort_by(|a, b| a.name.cmp(&b.name));
+    result
+}
+
+// ── extract_impls ───────────────────────────────────────────────────────
+
+/// Extract `impl` blocks. Each `ImplInfo` records the target type name and
+/// the impl items (fn, type, const).
+pub fn extract_impls(items: &[syn::Item]) -> Vec<ImplInfo> {
+    items
+        .iter()
+        .filter_map(|item| {
+            if let syn::Item::Impl(imp) = item {
+                let type_name = match imp.self_ty.as_ref() {
+                    syn::Type::Path(tp) => tp
+                        .path
+                        .segments
+                        .last()
+                        .map(|s| s.ident.to_string())
+                        .unwrap_or_default(),
+                    _ => String::new(),
+                };
+                if type_name.is_empty() {
+                    return None;
+                }
+                let impl_items: Vec<ImplItem> = imp
+                    .items
+                    .iter()
+                    .filter_map(|ii| match ii {
+                        syn::ImplItem::Fn(f) => Some(ImplItem {
+                            kind: ImplItemKind::Fn,
+                            name: f.sig.ident.to_string(),
+                            params: generics_to_string(&f.sig.generics),
+                        }),
+                        syn::ImplItem::Type(t) => Some(ImplItem {
+                            kind: ImplItemKind::Type,
+                            name: t.ident.to_string(),
+                            params: String::new(),
+                        }),
+                        syn::ImplItem::Const(c) => Some(ImplItem {
+                            kind: ImplItemKind::Const,
+                            name: c.ident.to_string(),
+                            params: String::new(),
+                        }),
+                        _ => None,
+                    })
+                    .collect();
+                Some(ImplInfo {
+                    type_: type_name,
+                    items: impl_items,
+                })
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
+// ── Helpers ─────────────────────────────────────────────────────────────
+
+fn is_visibility_inherited(item: &syn::Item) -> bool {
+    matches!(item_vis(item), syn::Visibility::Inherited)
+}
+
+fn item_vis(item: &syn::Item) -> &syn::Visibility {
+    match item {
+        syn::Item::Const(i) => &i.vis,
+        syn::Item::Enum(i) => &i.vis,
+        syn::Item::ExternCrate(i) => &i.vis,
+        syn::Item::Fn(i) => &i.vis,
+        syn::Item::ForeignMod(i) => &i.vis,
+        syn::Item::Macro(i) => &i.vis,
+        syn::Item::Mod(i) => &i.vis,
+        syn::Item::Static(i) => &i.vis,
+        syn::Item::Struct(i) => &i.vis,
+        syn::Item::Trait(i) => &i.vis,
+        syn::Item::TraitAlias(i) => &i.vis,
+        syn::Item::Type(i) => &i.vis,
+        syn::Item::Union(i) => &i.vis,
+        syn::Item::Use(i) => &i.vis,
+        _ => &syn::Visibility::Inherited,
+    }
+}
+
+fn line_of_item(item: &syn::Item) -> usize {
+    item_ident_span(item)
+        .map(|s| s.start().line)
+        .unwrap_or(0)
+}
+
+fn item_ident_span(item: &syn::Item) -> Option<&proc_macro2::Span> {
+    match item {
+        syn::Item::Struct(s) => Some(&s.ident.span()),
+        syn::Item::Enum(e) => Some(&e.ident.span()),
+        syn::Item::Trait(t) => Some(&t.ident.span()),
+        syn::Item::Fn(f) => Some(&f.sig.ident.span()),
+        syn::Item::Type(t) => Some(&t.ident.span()),
+        syn::Item::Mod(m) => Some(&m.ident.span()),
+        syn::Item::Macro(m) => m.ident.as_ref().map(|i| &i.span()),
+        _ => None,
+    }
+}
+
+fn vis_to_string(vis: &syn::Visibility) -> String {
+    match vis {
+        syn::Visibility::Public(_) => "pub".to_string(),
+        syn::Visibility::Restricted(r) => {
+            let path = r
+                .path
+                .segments
+                .iter()
+                .map(|s| s.ident.to_string())
+                .collect::<Vec<_>>()
+                .join("::");
+            if path.is_empty() {
+                "pub(restricted)".to_string()
+            } else {
+                format!("pub({})", path)
+            }
+        }
+        syn::Visibility::Inherited => "private".to_string(),
+    }
+}
+
+fn generics_to_string(generics: &syn::Generics) -> String {
+    if generics.params.is_empty() {
+        return String::new();
+    }
+    let params: Vec<String> = generics
+        .params
+        .iter()
+        .map(|p| match p {
+            syn::GenericParam::Type(t) => t.ident.to_string(),
+            syn::GenericParam::Lifetime(l) => l.lifetime.ident.to_string(),
+            syn::GenericParam::Const(c) => c.ident.to_string(),
+        })
+        .collect();
+    params.join(", ")
+}
+
+fn type_to_string(ty: &syn::Type) -> String {
+    match ty {
+        syn::Type::Path(tp) => {
+            tp.path
+                .segments
+                .iter()
+                .map(|s| {
+                    let ident = s.ident.to_string();
+                    match &s.arguments {
+                        syn::PathArguments::AngleBracketed(args) => {
+                            let inner: Vec<String> = args
+                                .args
+                                .iter()
+                                .filter_map(|a| match a {
+                                    syn::GenericArgument::Type(t) => Some(type_to_string(t)),
+                                    syn::GenericArgument::Lifetime(l) => {
+                                        Some(l.ident.to_string())
+                                    }
+                                    _ => None,
+                                })
+                                .collect();
+                            format!("{}<{}>", ident, inner.join(", "))
+                        }
+                        _ => ident,
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join("::")
+        }
+        syn::Type::Reference(tr) => {
+            let mut s = String::from("&");
+            if tr.lifetime.is_some() {
+                s.push_str("'a ");
+            }
+            s.push_str(&type_to_string(&tr.elem));
+            s
+        }
+        syn::Type::Tuple(tt) => {
+            let inner: Vec<String> = tt.elems.iter().map(type_to_string).collect();
+            format!("({})", inner.join(", "))
+        }
+        syn::Type::Slice(ts) => format!("[{}]", type_to_string(&ts.elem)),
+        syn::Type::Array(ta) => format!("[{}; _]", type_to_string(&ta.elem)),
+        syn::Type::Ptr(tp) => {
+            let kw = if tp.const_token.is_some() {
+                "const"
+            } else {
+                "mut"
+            };
+            format!("*{} {}", kw, type_to_string(&tp.elem))
+        }
+        syn::Type::BareFn(_) => "fn(...)".to_string(),
+        syn::Type::Never(_) => "!".to_string(),
+        syn::Type::TraitObject(to) => {
+            let bounds: Vec<String> = to.bounds.iter().map(|b| quote_bound(b)).collect();
+            bounds.join(" + ")
+        }
+        syn::Type::ImplTrait(ti) => {
+            let bounds: Vec<String> = ti.bounds.iter().map(|b| quote_bound(b)).collect();
+            format!("impl {}", bounds.join(" + "))
+        }
+        syn::Type::Paren(tp) => format!("({})", type_to_string(&tp.elem)),
+        syn::Type::Group(tg) => type_to_string(&tg.elem),
+        _ => "?".to_string(),
+    }
+}
+
+fn quote_bound(bound: &syn::TypeParamBound) -> String {
+    match bound {
+        syn::TypeParamBound::Trait(tb) => tb
+            .path
+            .segments
+            .last()
+            .map(|s| s.ident.to_string())
+            .unwrap_or_default(),
+        syn::TypeParamBound::Lifetime(l) => l.ident.to_string(),
+        _ => "?".to_string(),
+    }
+}
+
+fn fields_to_strings(fields: &syn::Fields) -> Vec<String> {
+    fields
+        .iter()
+        .map(|f| {
+            let vis = match &f.vis {
+                syn::Visibility::Public(_) => "pub ",
+                _ => "",
+            };
+            match &f.ident {
+                Some(name) => format!("{}{}: {}", vis, name, type_to_string(&f.ty)),
+                None => format!("{}{}", vis, type_to_string(&f.ty)),
+            }
+        })
+        .collect()
+}
+
+fn variants_to_strings(
+    variants: &syn::punctuated::Punctuated<syn::Variant, syn::token::Comma>,
+) -> Vec<String> {
+    variants
+        .iter()
+        .map(|v| {
+            let name = v.ident.to_string();
+            match &v.fields {
+                syn::Fields::Named(fields) => {
+                    let inner: Vec<String> = fields
+                        .named
+                        .iter()
+                        .map(|f| match &f.ident {
+                            Some(id) => format!("{}: {}", id, type_to_string(&f.ty)),
+                            None => type_to_string(&f.ty),
+                        })
+                        .collect();
+                    format!("{} {{ {} }}", name, inner.join(", "))
+                }
+                syn::Fields::Unnamed(fields) => {
+                    let inner: Vec<String> =
+                        fields.unnamed.iter().map(|f| type_to_string(&f.ty)).collect();
+                    format!("{}({})", name, inner.join(", "))
+                }
+                syn::Fields::Unit => name,
+            }
+        })
+        .collect()
+}
+
+fn extract_attrs(attrs: &[syn::Attribute]) -> ItemAttrs {
+    let mut derive = Vec::new();
+    let mut doc = Vec::new();
+
+    for attr in attrs {
+        if attr.path().is_ident("derive") {
+            if let syn::Meta::List(list) = &attr.meta {
+                let derives: Vec<String> = list
+                    .tokens
+                    .to_string()
+                    .split(',')
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect();
+                derive.extend(derives);
+            }
+        } else if attr.path().is_ident("doc") {
+            if let syn::Meta::NameValue(nv) = &attr.meta {
+                if let syn::Expr::Lit(el) = &nv.value {
+                    if let syn::Lit::Str(ls) = &el.lit {
+                        doc.push(ls.value());
+                    }
+                }
+            }
+        }
+    }
+
+    derive.sort();
+    ItemAttrs { derive, doc }
+}
+
+fn into_public_item(item: &syn::Item) -> Option<PublicItem> {
+    let (kind, name, fields, variants, generics, attrs_src) = match item {
+        syn::Item::Struct(s) => (
+            ItemKind::Struct,
+            s.ident.to_string(),
+            fields_to_strings(&s.fields),
+            vec![],
+            generics_to_string(&s.generics),
+            &s.attrs,
+        ),
+        syn::Item::Enum(e) => (
+            ItemKind::Enum,
+            e.ident.to_string(),
+            vec![],
+            variants_to_strings(&e.variants),
+            generics_to_string(&e.generics),
+            &e.attrs,
+        ),
+        syn::Item::Trait(t) => (
+            ItemKind::Trait,
+            t.ident.to_string(),
+            vec![],
+            vec![],
+            generics_to_string(&t.generics),
+            &t.attrs,
+        ),
+        syn::Item::Fn(f) => (
+            ItemKind::Fn,
+            f.sig.ident.to_string(),
+            vec![],
+            vec![],
+            generics_to_string(&f.sig.generics),
+            &f.attrs,
+        ),
+        syn::Item::Type(t) => (
+            ItemKind::Type,
+            t.ident.to_string(),
+            vec![],
+            vec![],
+            generics_to_string(&t.generics),
+            &t.attrs,
+        ),
+        syn::Item::Macro(m) => {
+            let name = m.ident.as_ref().map(|i| i.to_string()).unwrap_or_default();
+            if name.is_empty() {
+                return None;
+            }
+            (
+                ItemKind::Macro,
+                name,
+                vec![],
+                vec![],
+                String::new(),
+                &m.attrs,
+            )
+        }
+        _ => return None,
+    };
+
+    let line = item_ident_span(item)
+        .map(|s| s.start().line)
+        .unwrap_or(0);
+    let attrs = extract_attrs(attrs_src);
+    let visibility = vis_to_string(item_vis(item));
+
+    Some(PublicItem {
+        kind,
+        name,
+        file: String::new(),
+        line,
+        attrs,
+        generics,
+        visibility,
+        fields,
+        variants,
+        impls: vec![],
+    })
+}
+
+fn flatten_use_tree(tree: &syn::UseTree, prefix: String, line: usize) -> Vec<Import> {
+    match tree {
+        syn::UseTree::Path(p) => {
+            let new_prefix = if prefix.is_empty() {
+                p.ident.to_string()
+            } else {
+                format!("{}::{}", prefix, p.ident)
+            };
+            flatten_use_tree(&p.tree, new_prefix, line)
+        }
+        syn::UseTree::Name(n) => {
+            let path = if prefix.is_empty() {
+                n.ident.to_string()
+            } else {
+                format!("{}::{}", prefix, n.ident)
+            };
+            vec![Import { path, line }]
+        }
+        syn::UseTree::Rename(r) => {
+            let path = if prefix.is_empty() {
+                format!("{} as {}", r.ident, r.rename)
+            } else {
+                format!("{}::{} as {}", prefix, r.ident, r.rename)
+            };
+            vec![Import { path, line }]
+        }
+        syn::UseTree::Glob(_) => {
+            let path = if prefix.is_empty() {
+                "*".to_string()
+            } else {
+                format!("{}::*", prefix)
+            };
+            vec![Import { path, line }]
+        }
+        syn::UseTree::Group(g) => g
+            .items
+            .iter()
+            .flat_map(|t| flatten_use_tree(t, prefix.clone(), line))
+            .collect(),
+    }
+}
+
+fn extract_re_exports_from_tree(
+    tree: &syn::UseTree,
+    import_path: String,
+    line: usize,
+) -> Vec<ReExport> {
+    match tree {
+        syn::UseTree::Path(p) => {
+            let new_import = if import_path.is_empty() {
+                p.ident.to_string()
+            } else {
+                format!("{}::{}", import_path, p.ident)
+            };
+            extract_re_exports_from_tree(&p.tree, new_import, line)
+        }
+        syn::UseTree::Name(n) => {
+            vec![ReExport {
+                import_path,
+                export_path: n.ident.to_string(),
+                line,
+            }]
+        }
+        syn::UseTree::Rename(r) => {
+            vec![ReExport {
+                import_path,
+                export_path: r.rename.to_string(),
+                line,
+            }]
+        }
+        syn::UseTree::Glob(_) => {
+            vec![ReExport {
+                import_path,
+                export_path: "*".to_string(),
+                line,
+            }]
+        }
+        syn::UseTree::Group(g) => g
+            .items
+            .iter()
+            .flat_map(|t| extract_re_exports_from_tree(t, import_path.clone(), line))
+            .collect(),
+    }
+}
+'''
+
+[tasks.TASK-6]
+description = "Create src/module_tree.rs with build_module_tree and resolve_module_path"
+type = "create"
+acceptance = [
+    "test -f src/module_tree.rs",
+]
+
+[[tasks.TASK-6.changes]]
+file = "src/module_tree.rs"
+after = '''
+use crate::file_parser;
+use crate::schema::{FileInfo, ModuleInfo, Result, SubmoduleDecl};
+use std::collections::HashSet;
+use std::path::{Path, PathBuf};
+
+/// Resolve a `mod name;` declaration to a file path.
+/// Tries `{parent_dir}/{mod_name}.rs` first, then `{parent_dir}/{mod_name}/mod.rs`.
+pub fn resolve_module_path(parent_dir: &Path, mod_name: &str) -> Option<PathBuf> {
+    let rs_file = parent_dir.join(format!("{}.rs", mod_name));
+    if rs_file.exists() {
+        return Some(rs_file);
+    }
+    let mod_dir = parent_dir.join(mod_name).join("mod.rs");
+    if mod_dir.exists() {
+        return Some(mod_dir);
+    }
+    None
+}
+
+/// Build the full module tree for a crate starting from its entry point
+/// (e.g., `src/lib.rs`). Returns a flat `Vec<ModuleInfo>` containing the
+/// root module and all recursively discovered submodules.
+pub fn build_module_tree(crate_root: &Path, crate_name: &str) -> Result<Vec<ModuleInfo>> {
+    let mut visited = HashSet::new();
+    let parent_dir = crate_root.parent().unwrap_or_else(|| Path::new("."));
+
+    let (ast, file_info) = file_parser::parse_file(crate_root)?;
+    visited.insert(crate_root.to_path_buf());
+
+    let root_module = build_module_info(
+        crate_name,
+        crate_root,
+        "pub",
+        &file_info.public_items,
+        &file_info.imports,
+        &file_info.re_exports,
+        &file_info.submodules,
+    );
+
+    let mut modules = vec![root_module];
+
+    for sub in &file_info.submodules {
+        if sub.is_test {
+            continue;
+        }
+        let sub_module_path = format!("{}::{}", crate_name, sub.name);
+        let child_modules = process_submodule(
+            &sub_module_path,
+            &sub.name,
+            &ast.items,
+            parent_dir,
+            crate_root,
+            &mut visited,
+        )?;
+        modules.extend(child_modules);
+    }
+
+    Ok(modules)
+}
+
+// ── Internal helpers ────────────────────────────────────────────────────
+
+fn build_module_info(
+    path: &str,
+    file: &Path,
+    visibility: &str,
+    public_items: &[crate::schema::PublicItem],
+    imports: &[crate::schema::Import],
+    re_exports: &[crate::schema::ReExport],
+    submodules: &[SubmoduleDecl],
+) -> ModuleInfo {
+    ModuleInfo::builder()
+        .path(path.to_string())
+        .file(file.to_string_lossy().to_string())
+        .visibility(visibility.to_string())
+        .public_items(public_items.to_vec())
+        .imports(imports.to_vec())
+        .re_exports(re_exports.to_vec())
+        .submodules(
+            submodules
+                .iter()
+                .map(|s| s.name.clone())
+                .collect::<Vec<_>>(),
+        )
+        .build()
+}
+
+fn process_submodule(
+    module_path: &str,
+    mod_name: &str,
+    parent_items: &[syn::Item],
+    parent_dir: &Path,
+    parent_file: &Path,
+    visited: &mut HashSet<PathBuf>,
+) -> Result<Vec<ModuleInfo>> {
+    // Locate the `mod` item in the parent's AST.
+    let mod_item = parent_items.iter().find_map(|item| {
+        if let syn::Item::Mod(m) = item {
+            if m.ident == mod_name {
+                return Some(m);
+            }
+        }
+        None
+    });
+
+    let Some(mod_item) = mod_item else {
+        eprintln!("warning: orphaned module {}", module_path);
+        return Ok(vec![ModuleInfo::builder()
+            .path(module_path.to_string())
+            .file("<unresolved>".to_string())
+            .visibility("private".to_string())
+            .build()]);
+    };
+
+    let visibility = if matches!(mod_item.vis, syn::Visibility::Public(_)) {
+        "pub"
+    } else {
+        "private"
+    };
+
+    if let Some((_, ref inline_items)) = mod_item.content {
+        // Inline module: process its body items directly (no file lookup).
+        process_module_items(
+            module_path,
+            parent_file,
+            visibility,
+            inline_items,
+            parent_dir,
+            visited,
+        )
+    } else {
+        // External module: resolve file path, parse, and recurse.
+        let file_path = resolve_module_path(parent_dir, mod_name);
+        let Some(ref file_path) = file_path else {
+            eprintln!("warning: orphaned module {}", module_path);
+            return Ok(vec![ModuleInfo::builder()
+                .path(module_path.to_string())
+                .file("<unresolved>".to_string())
+                .visibility(visibility.to_string())
+                .build()]);
+        };
+
+        if visited.contains(file_path.as_path()) {
+            return Ok(vec![]); // cycle detected
+        }
+        visited.insert(file_path.clone());
+
+        let (ast, file_info) = file_parser::parse_file(file_path)?;
+        process_module_info(
+            module_path,
+            file_path,
+            visibility,
+            &file_info,
+            &ast.items,
+            &file_path.parent().unwrap_or_else(|| Path::new(".")),
+            visited,
+        )
+    }
+}
+
+fn process_module_items(
+    module_path: &str,
+    file_path: &Path,
+    visibility: &str,
+    items: &[syn::Item],
+    parent_dir: &Path,
+    visited: &mut HashSet<PathBuf>,
+) -> Result<Vec<ModuleInfo>> {
+    let file_info = FileInfo {
+        public_items: file_parser::extract_public_items(items),
+        imports: file_parser::extract_imports(items),
+        re_exports: file_parser::extract_re_exports(items),
+        submodules: file_parser::extract_submodules(items),
+        impls: file_parser::extract_impls(items),
+    };
+    process_module_info(module_path, file_path, visibility, &file_info, items, parent_dir, visited)
+}
+
+fn process_module_info(
+    module_path: &str,
+    file_path: &Path,
+    visibility: &str,
+    file_info: &FileInfo,
+    items: &[syn::Item],
+    parent_dir: &Path,
+    visited: &mut HashSet<PathBuf>,
+) -> Result<Vec<ModuleInfo>> {
+    let mut modules = vec![build_module_info(
+        module_path,
+        file_path,
+        visibility,
+        &file_info.public_items,
+        &file_info.imports,
+        &file_info.re_exports,
+        &file_info.submodules,
+    )];
+
+    for sub in &file_info.submodules {
+        if sub.is_test {
+            continue;
+        }
+        let child_path = format!("{}::{}", module_path, sub.name);
+        let child_dir = file_path.parent().unwrap_or_else(|| Path::new("."));
+        let child_modules = process_submodule(
+            &child_path,
+            &sub.name,
+            items,
+            child_dir,
+            file_path,
+            visited,
+        )?;
+        modules.extend(child_modules);
+    }
+
+    Ok(modules)
+}
+'''
+
+[tasks.TASK-7]
+description = "Create src/cross_refs.rs with compute function"
+type = "create"
+acceptance = [
+    "test -f src/cross_refs.rs",
+]
+
+[[tasks.TASK-7.changes]]
+file = "src/cross_refs.rs"
+after = '''
+use crate::schema::{CrateInfo, CrossCrateImport, CrossReferences, TypeRef};
+use std::collections::BTreeMap;
+
+/// Compute cross-crate type references.
+///
+/// For every public item in every crate, matches it against imports from
+/// other crates. Populates each `CrateInfo.cross_crate_imports` and returns
+/// the global `CrossReferences` map (keyed by type/symbol name).
+///
+/// Takes `&mut [CrateInfo]` so it can write `cross_crate_imports` into each
+/// crate while building the global cross-reference map.
+pub fn compute(crates: &mut [CrateInfo]) -> CrossReferences {
+    // Build a map: crate_name -> set of public item names.
+    let crate_exports: BTreeMap<String, Vec<(String, String)>> = crates
+        .iter()
+        .map(|c| {
+            let items: Vec<(String, String)> = c
+                .modules
+                .iter()
+                .flat_map(|m| &m.public_items)
+                .map(|item| (item.name.clone(), item.kind_to_string()))
+                .collect();
+            (c.name.clone(), items)
+        })
+        .collect();
+
+    let mut types_map: BTreeMap<String, TypeRef> = BTreeMap::new();
+
+    // Initialize TypeRef entries for every exported public item.
+    for (crate_name, items) in &crate_exports {
+        for (item_name, kind) in items {
+            let entry = types_map.entry(item_name.clone()).or_insert_with(|| {
+                TypeRef::builder()
+                    .crate_name(crate_name.clone())
+                    .kind(kind.clone())
+                    .build()
+            });
+            if !entry.exported_by.contains(crate_name) {
+                entry.exported_by.push(crate_name.clone());
+            }
+        }
+    }
+
+    // Scan each crate's imports to find cross-crate references.
+    for crate_info in crates.iter_mut() {
+        let my_name = crate_info.name.clone();
+        let mut cross_imports: Vec<CrossCrateImport> = Vec::new();
+
+        for module in &crate_info.modules {
+            for import in &module.imports {
+                // Extract first path segment as potential crate name.
+                let first_seg = import
+                    .path
+                    .split("::")
+                    .next()
+                    .unwrap_or("")
+                    .to_string();
+                if first_seg.is_empty() || first_seg == "*" {
+                    continue;
+                }
+
+                // Check if first segment matches any known crate.
+                if crate_exports.contains_key(&first_seg) && first_seg != my_name {
+                    let symbol = import
+                        .path
+                        .rsplit("::")
+                        .next()
+                        .unwrap_or("")
+                        .to_string();
+
+                    cross_imports.push(CrossCrateImport {
+                        import_path: import.path.clone(),
+                        target_crate: first_seg.clone(),
+                        symbol: symbol.clone(),
+                        line: import.line,
+                    });
+
+                    // Update global cross-references.
+                    if let Some(type_ref) = types_map.get_mut(&symbol) {
+                        let importer_label = format!("{}:{}", my_name, module.path);
+                        if !type_ref.imported_by.contains(&importer_label) {
+                            type_ref.imported_by.push(importer_label.clone());
+                        }
+                    }
+                }
+            }
+        }
+
+        cross_imports.sort_by(|a, b| a.import_path.cmp(&b.import_path));
+        crate_info.cross_crate_imports = cross_imports;
+    }
+
+    CrossReferences { types: types_map }
+}
+
+// Helper: convert ItemKind to a short string for the TypeRef.kind field.
+impl crate::schema::PublicItem {
+    fn kind_to_string(&self) -> String {
+        match self.kind {
+            crate::schema::ItemKind::Struct => "struct".to_string(),
+            crate::schema::ItemKind::Enum => "enum".to_string(),
+            crate::schema::ItemKind::Trait => "trait".to_string(),
+            crate::schema::ItemKind::Fn => "fn".to_string(),
+            crate::schema::ItemKind::Type => "type".to_string(),
+            crate::schema::ItemKind::Macro => "macro".to_string(),
+        }
+    }
+}
+'''
+
+[tasks.TASK-8]
+description = "Create src/render.rs with render_json and render_to_writer"
+type = "create"
+acceptance = [
+    "test -f src/render.rs",
+]
+
+[[tasks.TASK-8.changes]]
+file = "src/render.rs"
+after = '''
+use crate::schema::WorkspaceMap;
+use std::io::Write;
+
+/// Serialize the workspace map to a JSON string with 2-space indentation.
+pub fn render_json(map: &WorkspaceMap) -> serde_json::Result<String> {
+    serde_json::to_string_pretty(map)
+}
+
+/// Serialize the workspace map to the given writer.
+pub fn render_to_writer(map: &WorkspaceMap, writer: impl Write) -> serde_json::Result<()> {
+    serde_json::to_writer_pretty(writer, map)
+}
+'''
+
+[tasks.TASK-9]
+description = "Create src/lib.rs with module declarations and run() orchestration"
+type = "create"
+acceptance = [
+    "cargo check",
+]
+
+[[tasks.TASK-9.changes]]
+file = "src/lib.rs"
+after = '''
+#![warn(clippy::pedantic)]
+
+pub mod cargo_info;
+pub mod cross_refs;
+pub mod file_parser;
+pub mod module_tree;
+pub mod render;
+pub mod schema;
+pub mod workspace;
+
+pub use schema::Config;
+
+use anyhow::Context;
+use rayon::prelude::*;
+use schema::{
+    CrateInfo, CrateType, ErrorEntry, ModuleInfo, WorkspaceInfo, WorkspaceMap,
+};
+use std::path::{Path, PathBuf};
+
+/// Run the full workspace mapping pipeline.
+///
+/// 1. Discover workspace root and member crates.
+/// 2. Process each crate in parallel (Cargo.toml parsing + module tree).
+/// 3. Compute cross-crate references.
+/// 4. Render JSON to stdout or the configured output file.
+pub fn run(config: Config) -> anyhow::Result<()> {
+    let workspace_root = workspace::find_workspace_root(&config.workspace_path)?;
+    let member_dirs = workspace::enumerate_members(&workspace_root)?;
+
+    let mut errors: Vec<ErrorEntry> = Vec::new();
+
+    let mut crate_infos: Vec<CrateInfo> = member_dirs
+        .par_iter()
+        .filter_map(|dir| {
+            let cargo_toml = dir.join("Cargo.toml");
+
+            let (pkg, deps) = match cargo_info::parse_cargo_toml(&cargo_toml) {
+                Ok(v) => v,
+                Err(e) => {
+                    eprintln!(
+                        "warning: failed to parse {}: {}",
+                        cargo_toml.display(),
+                        e
+                    );
+                    return None;
+                }
+            };
+
+            let roots = workspace::resolve_crate_roots(dir);
+            if roots.is_empty() {
+                eprintln!(
+                    "warning: no crate entry points found in {}",
+                    dir.display()
+                );
+                return None;
+            }
+
+            let crate_type = if roots.iter().any(|(_, t)| *t == CrateType::Lib)
+                && roots.iter().any(|(_, t)| *t == CrateType::Bin)
+            {
+                CrateType::LibAndBin
+            } else {
+                roots.first().map(|(_, t)| *t).unwrap_or(CrateType::Lib)
+            };
+
+            let pkg_name = pkg.name.clone();
+            let mut modules: Vec<ModuleInfo> = roots
+                .iter()
+                .flat_map(|(root, _ty)| {
+                    module_tree::build_module_tree(root, &pkg_name).unwrap_or_default()
+                })
+                .collect();
+
+            // Relativize all paths to the workspace root.
+            for m in &mut modules {
+                m.file = relativize_path(&m.file, &workspace_root);
+                for item in &mut m.public_items {
+                    item.file = relativize_path(&item.file, &workspace_root);
+                }
+            }
+
+            let crate_root = roots
+                .first()
+                .map(|(r, _)| relativize_path(&r.to_string_lossy(), &workspace_root))
+                .unwrap_or_default();
+
+            let rebuilt_pkg = schema::PackageInfo::builder()
+                .name(pkg.name)
+                .version(pkg.version)
+                .edition(pkg.edition)
+                .crate_type(crate_type)
+                .build();
+
+            Some(
+                CrateInfo::builder()
+                    .name(pkg_name)
+                    .root(crate_root)
+                    .package(rebuilt_pkg)
+                    .modules(modules)
+                    .deps(deps)
+                    .build(),
+            )
+        })
+        .collect();
+
+    // Deterministic sort by crate name.
+    crate_infos.sort_by(|a, b| a.name.cmp(&b.name));
+
+    let cross_refs = cross_refs::compute(&mut crate_infos);
+
+    let workspace_name = workspace_root
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_default();
+
+    let workspace_info = WorkspaceInfo::builder()
+        .root(".".to_string())
+        .workspace_name(workspace_name)
+        .build();
+
+    let map = WorkspaceMap::builder()
+        .workspace(workspace_info)
+        .crates(crate_infos)
+        .cross_references(cross_refs)
+        .errors(errors)
+        .workspace_root(workspace_root.clone())
+        .build();
+
+    if let Some(ref output_path) = config.output_path {
+        let file = std::fs::File::create(output_path)
+            .with_context(|| format!("failed to create output file: {}", output_path.display()))?;
+        let writer = std::io::BufWriter::new(file);
+        render::render_to_writer(&map, writer)?;
+    } else {
+        let stdout = std::io::stdout();
+        render::render_to_writer(&map, stdout.lock())?;
+    }
+
+    Ok(())
+}
+
+/// Strip the workspace root prefix from a path string, returning a
+/// workspace-relative path. If the prefix doesn't match, returns the
+/// original string unchanged.
+fn relativize_path(path_str: &str, root: &Path) -> String {
+    let p = Path::new(path_str);
+    match p.strip_prefix(root) {
+        Ok(rel) => rel.to_string_lossy().to_string(),
+        Err(_) => path_str.to_string(),
+    }
+}
+'''
+
+[tasks.TASK-10]
+description = "Create src/main.rs with clap CLI and main() entry point"
+type = "create"
+acceptance = [
+    "cargo check",
+]
+
+[[tasks.TASK-10.changes]]
+file = "src/main.rs"
+after = '''
+use clap::Parser;
+use std::path::PathBuf;
+
+#[derive(Parser)]
+#[command(
+    name = "rust-workspace-map",
+    version,
+    about = "Generate a JSON map of a Rust workspace's public API surface"
+)]
+struct Cli {
+    /// Path to the workspace root or any directory within it
+    #[arg(value_name = "PATH")]
+    path: PathBuf,
+
+    /// Write JSON output to file instead of stdout
+    #[arg(short = 'o', long = "output", value_name = "FILE")]
+    output: Option<PathBuf>,
+}
+
+fn main() -> anyhow::Result<()> {
+    let cli = Cli::parse();
+
+    let workspace_path = std::path::absolute(&cli.path)
+        .map_err(|e| anyhow::anyhow!("invalid path {}: {}", cli.path.display(), e))?;
+
+    let config = rust_workspace_map::Config::builder()
+        .workspace_path(workspace_path)
+        .output_path(cli.output)
+        .build();
+
+    rust_workspace_map::run(config)
+}
+'''
+
+[tasks.TASK-11]
+description = "Create integration test fixture workspace and integration test"
+type = "create"
+acceptance = [
+    "cargo test --test integration_test",
+]
+
+[[tasks.TASK-11.changes]]
+file = "tests/fixtures/sample-workspace/Cargo.toml"
+after = '''
+[workspace]
+members = ["core", "engine"]
+resolver = "2"
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+'''
+
+[[tasks.TASK-11.changes]]
+file = "tests/fixtures/sample-workspace/core/Cargo.toml"
+after = '''
+[package]
+name = "core"
+version = "0.1.0"
+edition = "2021"
+'''
+
+[[tasks.TASK-11.changes]]
+file = "tests/fixtures/sample-workspace/core/src/lib.rs"
+after = '''
+use serde::{Deserialize, Serialize};
+
+/// A task that can be executed by a runner.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Task {
+    pub id: u64,
+    pub name: String,
+    pub payload: Vec<u8>,
+}
+
+impl Task {
+    pub fn new(id: u64, name: String) -> Self {
+        Self {
+            id,
+            name,
+            payload: Vec::new(),
+        }
+    }
+
+    pub fn with_payload(mut self, payload: Vec<u8>) -> Self {
+        self.payload = payload;
+        self
+    }
+}
+
+/// A trait for types that can execute tasks.
+pub trait Runner {
+    fn run(&self, task: &Task) -> bool;
+}
+
+/// A basic no-op runner.
+pub struct NoopRunner;
+
+impl Runner for NoopRunner {
+    fn run(&self, _task: &Task) -> bool {
+        true
+    }
+}
+
+/// Re-export Task for convenience.
+pub use Task as CoreTask;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_task_new() {
+        let task = Task::new(1, "test".into());
+        assert_eq!(task.id, 1);
+        assert_eq!(task.name, "test");
+    }
+}
+'''
+
+[[tasks.TASK-11.changes]]
+file = "tests/fixtures/sample-workspace/engine/Cargo.toml"
+after = '''
+[package]
+name = "engine"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+core = { path = "../core" }
+serde = { workspace = true }
+'''
+
+[[tasks.TASK-11.changes]]
+file = "tests/fixtures/sample-workspace/engine/src/lib.rs"
+after = '''
+mod pipeline;
+
+use core::Task;
+use serde::Serialize;
+
+/// The main pipeline struct that orchestrates task execution.
+#[derive(Debug, Clone, Serialize)]
+pub struct Pipeline {
+    pub name: String,
+    pub tasks: Vec<Task>,
+}
+
+impl Pipeline {
+    pub fn new(name: String) -> Self {
+        Self {
+            name,
+            tasks: Vec::new(),
+        }
+    }
+
+    pub fn add_task(&mut self, task: Task) {
+        self.tasks.push(task);
+    }
+}
+
+pub use pipeline::PipelineStage;
+
+/// Re-export Pipeline for convenience.
+pub use Pipeline as EnginePipeline;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_pipeline_new() {
+        let p = Pipeline::new("test".into());
+        assert_eq!(p.name, "test");
+        assert!(p.tasks.is_empty());
+    }
+}
+'''
+
+[[tasks.TASK-11.changes]]
+file = "tests/fixtures/sample-workspace/engine/src/pipeline.rs"
+after = '''
+/// A stage within the pipeline.
+#[derive(Debug, Clone)]
+pub struct PipelineStage {
+    pub name: String,
+    pub order: u32,
+}
+
+impl PipelineStage {
+    pub fn new(name: String, order: u32) -> Self {
+        Self { name, order }
+    }
+}
+'''
+
+[[tasks.TASK-11.changes]]
+file = "tests/integration_test.rs"
+after = '''
+use std::process::Command;
+
+#[test]
+fn test_sample_workspace_output() {
+    let fixture = std::path::Path::new("tests/fixtures/sample-workspace");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rust-workspace-map"))
+        .arg(fixture)
+        .output()
+        .expect("failed to execute binary");
+
+    assert!(
+        output.status.success(),
+        "binary exited with: {}\nstderr: {}",
+        output.status,
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value =
+        serde_json::from_str(&stdout).expect("output is not valid JSON");
+
+    // Top-level structure.
+    assert_eq!(json["workspace"]["root"], ".");
+    assert!(!json["workspace"]["workspaceName"].as_str().unwrap().is_empty());
+    assert!(json["crates"].is_array(), "crates must be an array");
+
+    let crates = json["crates"].as_array().unwrap();
+
+    // Both crates should be present.
+    let names: Vec<&str> = crates.iter().map(|c| c["name"].as_str().unwrap()).collect();
+    assert!(names.contains(&"core"), "missing core crate");
+    assert!(names.contains(&"engine"), "missing engine crate");
+
+    // Find the core crate and verify its modules.
+    let core_crate = crates.iter().find(|c| c["name"] == "core").unwrap();
+    assert_eq!(core_crate["package"]["crateType"], "lib");
+    assert!(!core_crate["modules"].as_array().unwrap().is_empty());
+
+    // core should have a public Task struct.
+    let has_task = core_crate["modules"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|m| m["publicItems"].as_array().unwrap_or(&vec![]).iter())
+        .any(|item| item["name"] == "Task" && item["kind"] == "struct");
+    assert!(has_task, "core should export pub struct Task");
+
+    // Find the engine crate.
+    let engine_crate = crates.iter().find(|c| c["name"] == "engine").unwrap();
+    assert!(!engine_crate["modules"].as_array().unwrap().is_empty());
+
+    // engine should import from core.
+    let engine_imports_core = engine_crate["modules"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|m| m["imports"].as_array().unwrap_or(&vec![]).iter())
+        .any(|imp| imp["path"].as_str().unwrap().contains("core"));
+    assert!(engine_imports_core, "engine should import from core");
+
+    // Cross-references should link Task to both crates.
+    let cross_refs = &json["crossReferences"]["types"];
+    let task_ref = cross_refs
+        .get("Task")
+        .expect("Task should appear in crossReferences.types");
+    assert!(
+        task_ref["exported_by"]
+            .as_array()
+            .unwrap()
+            .contains(&serde_json::Value::String("core".into())),
+        "Task should be exported by core"
+    );
+}
+
+#[test]
+fn test_deterministic_output() {
+    let fixture = std::path::Path::new("tests/fixtures/sample-workspace");
+
+    let output1 = Command::new(env!("CARGO_BIN_EXE_rust-workspace-map"))
+        .arg(fixture)
+        .output()
+        .expect("failed to execute binary (run 1)");
+    assert!(output1.status.success());
+
+    let output2 = Command::new(env!("CARGO_BIN_EXE_rust-workspace-map"))
+        .arg(fixture)
+        .output()
+        .expect("failed to execute binary (run 2)");
+    assert!(output2.status.success());
+
+    assert_eq!(
+        output1.stdout, output2.stdout,
+        "output must be byte-identical across runs"
+    );
+}
+
+#[test]
+fn test_missing_path_exits_nonzero() {
+    let output = Command::new(env!("CARGO_BIN_EXE_rust-workspace-map"))
+        .arg("/tmp/nonexistent-path-12345")
+        .output()
+        .expect("failed to execute binary");
+
+    assert!(
+        !output.status.success(),
+        "should exit non-zero for invalid path"
+    );
+}
+'''
