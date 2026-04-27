@@ -32,3 +32,16 @@
       either src/lib.rs, src/main.rs, a [lib] section, or [[bin]] section must be present
     ```
 
+### TASK-3: Create src/workspace.rs with find_workspace_root, enumerate_members, resolve_crate_roots
+- **Status**: ✗ Failed
+- **Validation output**:
+  - `test -f src/workspace.rs`: PASSED
+  - `cargo check --workspace 2>&1`: FAILED (exit 101)
+    ```
+    error: failed to parse manifest at `/Users/tony/programming/rust-workspace-map/Cargo.toml`
+    
+    Caused by:
+      no targets specified in the manifest
+      either src/lib.rs, src/main.rs, a [lib] section, or [[bin]] section must be present
+    ```
+
