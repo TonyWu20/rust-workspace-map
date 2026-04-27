@@ -176,3 +176,40 @@
         |
     ```
 
+### TASK-11: Create integration test fixture workspace and integration test
+- **Status**: ✗ Failed
+- **Validation output**:
+  - `cargo test --test integration_test`: FAILED (exit 101)
+    ```
+    ing thiserror-impl v2.0.18
+       Compiling thiserror v2.0.18
+       Compiling darling_macro v0.23.0
+       Compiling clap v4.6.1
+       Compiling darling v0.23.0
+       Compiling bon-macros v3.9.1
+       Compiling serde v1.0.228
+       Compiling serde_spanned v0.6.9
+       Compiling toml_datetime v0.6.11
+       Compiling toml_edit v0.22.27
+       Compiling bon v3.9.1
+       Compiling toml v0.8.23
+       Compiling rust-workspace-map v0.1.0 (/Users/tony/programming/rust-workspace-map)
+    error[E0583]: file not found for module `file_parser`
+     --> src/lib.rs:5:1
+      |
+    5 | pub mod file_parser;
+      | ^^^^^^^^^^^^^^^^^^^^
+      |
+      = help: to create the module `file_parser`, create file "src/file_parser.rs" or "src/file_parser/mod.rs"
+      = note: if there is a `mod file_parser` elsewhere in the crate already, import it with `use crate::...` instead
+    
+    error: `Option<_>` already implies a default of `None`, so explicit #[builder(default)] is redundant
+      --> src/schema.rs:46:15
+       |
+    46 |     #[builder(default)]
+       |               ^^^^^^^
+    
+    warning: unused import: `PathBuf`
+      --> src/lib.rs:18:23
+    ```
+
