@@ -102,3 +102,40 @@
       either src/lib.rs, src/main.rs, a [lib] section, or [[bin]] section must be present
     ```
 
+### TASK-9: Create src/lib.rs with module declarations and run() orchestration
+- **Status**: ✗ Failed
+- **Validation output**:
+  - `cargo check`: FAILED (exit 101)
+    ```
+    e_derive v1.0.228
+       Compiling clap_derive v4.6.1
+       Compiling thiserror-impl v2.0.18
+        Checking clap v4.6.1
+       Compiling darling_macro v0.23.0
+       Compiling darling v0.23.0
+       Compiling bon-macros v3.9.1
+        Checking serde_spanned v0.6.9
+        Checking toml_datetime v0.6.11
+        Checking toml_edit v0.22.27
+        Checking toml v0.8.23
+        Checking bon v3.9.1
+        Checking rust-workspace-map v0.1.0 (/Users/tony/programming/rust-workspace-map)
+    error[E0583]: file not found for module `file_parser`
+     --> src/lib.rs:5:1
+      |
+    5 | pub mod file_parser;
+      | ^^^^^^^^^^^^^^^^^^^^
+      |
+      = help: to create the module `file_parser`, create file "src/file_parser.rs" or "src/file_parser/mod.rs"
+      = note: if there is a `mod file_parser` elsewhere in the crate already, import it with `use crate::...` instead
+    
+    error: `Option<_>` already implies a default of `None`, so explicit #[builder(default)] is redundant
+      --> src/schema.rs:46:15
+       |
+    46 |     #[builder(default)]
+       |               ^^^^^^^
+    
+    warning: unused import: `PathBuf`
+      --> src/lib.rs:18:23
+    ```
+
