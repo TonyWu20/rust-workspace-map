@@ -24,12 +24,12 @@ pub struct ErrorEntry {
 ```
 
 Specific changes:
-- Change `parse_file()` to propagate `SynParse` errors as `ErrorEntry` with severity `error`, rather than returning empty results
+- Change `parse_file()` to propagate `SynParse` errors as `ErrorEntry` with severity `error`, rather than returning empty results. This applies to **all** files — including `#[cfg(test)]` modules and inline test module bodies. No parse failure is silently swallowed, regardless of file role.
 - Remove `.unwrap_or_default()` on `build_module_tree` in `run()` — capture errors and emit `ErrorEntry`
 - Collect `ErrorEntry` values from parallel crate processing (use `Mutex<Vec<ErrorEntry>>` or `rayon::collect` into a shared vec)
 - Emit `ErrorEntry` for orphaned modules (currently `eprintln!` only)
 - Add `ErrorSeverity` enum to schema (`Error`, `Warning`)
-- Add `ErrorContext` struct with `crate_name`, `module_path`, `snippet` fields
+- Add `ErrorContext` struct with `crate_name`, `module_path`, `line`, `snippet` fields
 
 **Why now:** Without this, an LLM agent consuming the JSON cannot distinguish "no public API" from "parsing failed." This is the highest-leverage reliability change.
 
