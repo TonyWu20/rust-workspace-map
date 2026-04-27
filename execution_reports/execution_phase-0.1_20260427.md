@@ -58,3 +58,8 @@
       either src/lib.rs, src/main.rs, a [lib] section, or [[bin]] section must be present
     ```
 
+### TASK-5: Create src/file_parser.rs with parse_file and all extractor functions
+- **Status**: ✗ Failed
+- **Validation output**:
+  - `test -f src/file_parser.rs`: FAILED (exit 1)
+
