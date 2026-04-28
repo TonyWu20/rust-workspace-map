@@ -8,38 +8,6 @@ Read `raw-diff.md` for diff context, then fill in the judgment fields below.
 
 ---
 
-## File: .claude/hooks/current_task_TASK-PREP.json
-
-### Facts (from file-manifest.json — authoritative, do not modify)
-
-| Property | Value |
-|----------|-------|
-| Lines added | +24 |
-| Lines removed | -0 |
-| Trailing newline | YES |
-| Added functions | — |
-| Modified functions | — |
-| Removed functions | — |
-| Added imports | — |
-
-### Intent
-
-[Fill in: one sentence on what changed, based on the diff]
-
-### Checklist
-
-- Unnecessary clone/unwrap/expect? [Fill in: Yes (cite location) / No]
-- Error handling: [Fill in: observation]
-- Dead code or unused imports? [Fill in: Yes / No]
-- New public API: tests present? [Fill in: Yes / No / Not applicable]
-- Change appears within plan scope? [Fill in: Yes / No / Unclear — no plan available yet]
-
-### Notes
-
-[Fill in: other observations — no classifications, just facts]
-
----
-
 ## File: Cargo.lock
 
 ### Facts (from file-manifest.json — authoritative, do not modify)
@@ -104,13 +72,13 @@ Read `raw-diff.md` for diff context, then fill in the judgment fields below.
 
 ---
 
-## File: execution_reports/.checkpoint_phase-0.2.json
+## File: execution_reports/execution_fix-plan_20260428.md
 
 ### Facts (from file-manifest.json — authoritative, do not modify)
 
 | Property | Value |
 |----------|-------|
-| Lines added | +18 |
+| Lines added | +54 |
 | Lines removed | -0 |
 | Trailing newline | YES |
 | Added functions | — |
@@ -206,7 +174,7 @@ Read `raw-diff.md` for diff context, then fill in the judgment fields below.
 
 | Property | Value |
 |----------|-------|
-| Lines added | +11 |
+| Lines added | +28 |
 | Lines removed | -0 |
 | Trailing newline | YES |
 | Added functions | — |
@@ -360,13 +328,13 @@ Read `raw-diff.md` for diff context, then fill in the judgment fields below.
 
 ---
 
-## File: plans/compiled/TASK-1.py
+## File: notes/pr-reviews/phase-0.2/context.md
 
 ### Facts (from file-manifest.json — authoritative, do not modify)
 
 | Property | Value |
 |----------|-------|
-| Lines added | +44 |
+| Lines added | +128 |
 | Lines removed | -0 |
 | Trailing newline | YES |
 | Added functions | — |
@@ -392,13 +360,13 @@ Read `raw-diff.md` for diff context, then fill in the judgment fields below.
 
 ---
 
-## File: plans/compiled/TASK-1.sh
+## File: notes/pr-reviews/phase-0.2/cross-reference-validation.md
 
 ### Facts (from file-manifest.json — authoritative, do not modify)
 
 | Property | Value |
 |----------|-------|
-| Lines added | +7 |
+| Lines added | +57 |
 | Lines removed | -0 |
 | Trailing newline | YES |
 | Added functions | — |
@@ -424,13 +392,13 @@ Read `raw-diff.md` for diff context, then fill in the judgment fields below.
 
 ---
 
-## File: plans/compiled/TASK-10.py
+## File: notes/pr-reviews/phase-0.2/cross-reference.md
 
 ### Facts (from file-manifest.json — authoritative, do not modify)
 
 | Property | Value |
 |----------|-------|
-| Lines added | +44 |
+| Lines added | +59 |
 | Lines removed | -0 |
 | Trailing newline | YES |
 | Added functions | — |
@@ -456,13 +424,13 @@ Read `raw-diff.md` for diff context, then fill in the judgment fields below.
 
 ---
 
-## File: plans/compiled/TASK-10.sh
+## File: notes/pr-reviews/phase-0.2/deferred.md
 
 ### Facts (from file-manifest.json — authoritative, do not modify)
 
 | Property | Value |
 |----------|-------|
-| Lines added | +7 |
+| Lines added | +8 |
 | Lines removed | -0 |
 | Trailing newline | YES |
 | Added functions | — |
@@ -488,13 +456,13 @@ Read `raw-diff.md` for diff context, then fill in the judgment fields below.
 
 ---
 
-## File: plans/compiled/TASK-2.py
+## File: notes/pr-reviews/phase-0.2/draft-fix-document.md
 
 ### Facts (from file-manifest.json — authoritative, do not modify)
 
 | Property | Value |
 |----------|-------|
-| Lines added | +44 |
+| Lines added | +9 |
 | Lines removed | -0 |
 | Trailing newline | YES |
 | Added functions | — |
@@ -520,13 +488,13 @@ Read `raw-diff.md` for diff context, then fill in the judgment fields below.
 
 ---
 
-## File: plans/compiled/TASK-2.sh
+## File: notes/pr-reviews/phase-0.2/draft-fix-plan.toml
 
 ### Facts (from file-manifest.json — authoritative, do not modify)
 
 | Property | Value |
 |----------|-------|
-| Lines added | +7 |
+| Lines added | +27 |
 | Lines removed | -0 |
 | Trailing newline | YES |
 | Added functions | — |
@@ -552,13 +520,13 @@ Read `raw-diff.md` for diff context, then fill in the judgment fields below.
 
 ---
 
-## File: plans/compiled/TASK-3.py
+## File: notes/pr-reviews/phase-0.2/draft-review.md
 
 ### Facts (from file-manifest.json — authoritative, do not modify)
 
 | Property | Value |
 |----------|-------|
-| Lines added | +44 |
+| Lines added | +15 |
 | Lines removed | -0 |
 | Trailing newline | YES |
 | Added functions | — |
@@ -584,13 +552,13 @@ Read `raw-diff.md` for diff context, then fill in the judgment fields below.
 
 ---
 
-## File: plans/compiled/TASK-3.sh
+## File: notes/pr-reviews/phase-0.2/file-manifest.json
 
 ### Facts (from file-manifest.json — authoritative, do not modify)
 
 | Property | Value |
 |----------|-------|
-| Lines added | +7 |
+| Lines added | +791 |
 | Lines removed | -0 |
 | Trailing newline | YES |
 | Added functions | — |
@@ -616,13 +584,13 @@ Read `raw-diff.md` for diff context, then fill in the judgment fields below.
 
 ---
 
-## File: plans/compiled/TASK-4.py
+## File: notes/pr-reviews/phase-0.2/fix-plan.toml
 
 ### Facts (from file-manifest.json — authoritative, do not modify)
 
 | Property | Value |
 |----------|-------|
-| Lines added | +44 |
+| Lines added | +27 |
 | Lines removed | -0 |
 | Trailing newline | YES |
 | Added functions | — |
@@ -648,13 +616,13 @@ Read `raw-diff.md` for diff context, then fill in the judgment fields below.
 
 ---
 
-## File: plans/compiled/TASK-4.sh
+## File: notes/pr-reviews/phase-0.2/gather-summary.md
 
 ### Facts (from file-manifest.json — authoritative, do not modify)
 
 | Property | Value |
 |----------|-------|
-| Lines added | +7 |
+| Lines added | +34 |
 | Lines removed | -0 |
 | Trailing newline | YES |
 | Added functions | — |
@@ -680,13 +648,13 @@ Read `raw-diff.md` for diff context, then fill in the judgment fields below.
 
 ---
 
-## File: plans/compiled/TASK-5.py
+## File: notes/pr-reviews/phase-0.2/per-file-analysis-template.md
 
 ### Facts (from file-manifest.json — authoritative, do not modify)
 
 | Property | Value |
 |----------|-------|
-| Lines added | +44 |
+| Lines added | +1450 |
 | Lines removed | -0 |
 | Trailing newline | YES |
 | Added functions | — |
@@ -712,13 +680,13 @@ Read `raw-diff.md` for diff context, then fill in the judgment fields below.
 
 ---
 
-## File: plans/compiled/TASK-5.sh
+## File: notes/pr-reviews/phase-0.2/per-file-analysis.md
 
 ### Facts (from file-manifest.json — authoritative, do not modify)
 
 | Property | Value |
 |----------|-------|
-| Lines added | +7 |
+| Lines added | +1448 |
 | Lines removed | -0 |
 | Trailing newline | YES |
 | Added functions | — |
@@ -744,13 +712,45 @@ Read `raw-diff.md` for diff context, then fill in the judgment fields below.
 
 ---
 
-## File: plans/compiled/TASK-6.py
+## File: notes/pr-reviews/phase-0.2/raw-diff.md
 
 ### Facts (from file-manifest.json — authoritative, do not modify)
 
 | Property | Value |
 |----------|-------|
-| Lines added | +44 |
+| Lines added | +19027 |
+| Lines removed | -0 |
+| Trailing newline | YES |
+| Added functions | parse_cargo_toml, crate, kind_to_string, extract_public_items, extract_imports, extract_re_exports, extract_submodules, extract_impls, resolve_module_path, process_module_items, process_module_info, render_json, render_to_writer, Result, FileInfo, find_workspace_root, enumerate_members, resolve_crate_roots, Error, Config, ErrorEntry, parse_file, build_module_tree, compute, PublicItem, Cli, main, run, relativize_path, test_sample_workspace_output, test_deterministic_output, test_missing_path_exits_nonzero, ErrorSeverity, ErrorContext, ParsedFile, SynParseError, build_parse_error_entry, parse_source, parse_file_returns_ast_for_valid_source, parse_file_returns_error_for_invalid_source, parse_file_returns_empty_for_empty_file, extract_public_items_finds_struct_enum_trait_fn, extract_public_items_empty_for_no_public_items, extract_imports_finds_use_statements, extract_re_exports_finds_pub_use, extract_re_exports_finds_rename, extract_submodules_finds_mod_declarations, extract_submodules_marks_cfg_test, extract_impls_finds_fn_type_const, build_parse_error_entry_constructs_error, resolve_module_path_finds_rs_file, resolve_module_path_finds_mod_rs, resolve_module_path_returns_none_for_missing, build_module_tree_returns_empty_for_nonexistent, write_cargo_toml, setup_crate, find_workspace_root_finds_cargo_toml, enumerate_members_returns_members, enumerate_members_returns_err_for_missing_workspace, enumerate_members_applies_exclude, resolve_crate_roots_detects_lib, resolve_crate_roots_detects_bin, parse_cargo_toml_parses_minimal, parse_cargo_toml_uses_defaults_for_missing_package, parse_cargo_toml_distinguishes_deps, make_crate, compute_finds_cross_crate_import, compute_empty_for_no_cross_references, make_minimal_map, render_json_produces_valid_json, render_json_skips_empty_errors, render_to_writer_matches_render_json, run_binary, parse_output, test_parse_failure_error_entry, test_missing_workspace_section, test_glob_member_patterns, test_workspace_with_exclude, test_deeply_nested_modules, test_reexport_chains, Secret, test_output_via_flag, is_visibility_inherited, item_vis, line_of_item, item_ident_span, vis_to_string, generics_to_string, type_to_string, quote_bound, fields_to_strings, variants_to_strings, extract_attrs, into_public_item, flatten_use_tree, extract_re_exports_from_tree, COUNTER, build_module_info, process_submodule, CrateType, WorkspaceMap, WorkspaceInfo, CrateInfo, PackageInfo, DepInfo, ModuleInfo, ItemKind, ItemAttrs, ImplInfo, ImplItem, ImplItemKind, Import, ReExport, CrossCrateImport, CrossReferences, TypeRef, SubmoduleDecl, binary_path, extract_array |
+| Modified functions | — |
+| Removed functions | — |
+| Added imports | std::path::Path, anyhow::Context, rayon::prelude::*, crate::file_parser, std::collections::HashSet, std::path::{Path, PathBuf}, std::io::Write, super::*, crate::schema::{Import, ReExport, SubmoduleDecl}, std::path::PathBuf, crate::schema::ErrorEntry, crate::schema::{ModuleInfo, PublicItem, SubmoduleDecl}, crate::schema::{CrateType, DepInfo, Error, PackageInfo, Result}, crate::schema::{CrateInfo, CrossCrateImport, CrossReferences, TypeRef}, std::collections::BTreeMap, crate::schema::{CrateType, Import, ItemKind, ModuleInfo, PackageInfo, PublicItem}, std::sync::atomic::{AtomicU64, Ordering}, clap::Parser, crate::schema::{ErrorContext, ErrorEntry, ErrorSeverity, FileInfo, ModuleInfo, SubmoduleDecl}, crate::schema::WorkspaceMap, crate::schema::{CrateType, Error, Result}, std::process::Command |
+
+### Intent
+
+[Fill in: one sentence on what changed, based on the diff]
+
+### Checklist
+
+- Unnecessary clone/unwrap/expect? [Fill in: Yes (cite location) / No]
+- Error handling: [Fill in: observation]
+- Dead code or unused imports? [Fill in: Yes / No]
+- New public API: tests present? [Fill in: Yes / No / Not applicable]
+- Change appears within plan scope? [Fill in: Yes / No / Unclear — no plan available yet]
+
+### Notes
+
+[Fill in: other observations — no classifications, just facts]
+
+---
+
+## File: notes/pr-reviews/phase-0.2/review.md
+
+### Facts (from file-manifest.json — authoritative, do not modify)
+
+| Property | Value |
+|----------|-------|
+| Lines added | +35 |
 | Lines removed | -0 |
 | Trailing newline | YES |
 | Added functions | — |
@@ -776,301 +776,13 @@ Read `raw-diff.md` for diff context, then fill in the judgment fields below.
 
 ---
 
-## File: plans/compiled/TASK-6.sh
+## File: notes/pr-reviews/phase-0.2/status.md
 
 ### Facts (from file-manifest.json — authoritative, do not modify)
 
 | Property | Value |
 |----------|-------|
-| Lines added | +7 |
-| Lines removed | -0 |
-| Trailing newline | YES |
-| Added functions | — |
-| Modified functions | — |
-| Removed functions | — |
-| Added imports | — |
-
-### Intent
-
-[Fill in: one sentence on what changed, based on the diff]
-
-### Checklist
-
-- Unnecessary clone/unwrap/expect? [Fill in: Yes (cite location) / No]
-- Error handling: [Fill in: observation]
-- Dead code or unused imports? [Fill in: Yes / No]
-- New public API: tests present? [Fill in: Yes / No / Not applicable]
-- Change appears within plan scope? [Fill in: Yes / No / Unclear — no plan available yet]
-
-### Notes
-
-[Fill in: other observations — no classifications, just facts]
-
----
-
-## File: plans/compiled/TASK-7.py
-
-### Facts (from file-manifest.json — authoritative, do not modify)
-
-| Property | Value |
-|----------|-------|
-| Lines added | +44 |
-| Lines removed | -0 |
-| Trailing newline | YES |
-| Added functions | — |
-| Modified functions | — |
-| Removed functions | — |
-| Added imports | — |
-
-### Intent
-
-[Fill in: one sentence on what changed, based on the diff]
-
-### Checklist
-
-- Unnecessary clone/unwrap/expect? [Fill in: Yes (cite location) / No]
-- Error handling: [Fill in: observation]
-- Dead code or unused imports? [Fill in: Yes / No]
-- New public API: tests present? [Fill in: Yes / No / Not applicable]
-- Change appears within plan scope? [Fill in: Yes / No / Unclear — no plan available yet]
-
-### Notes
-
-[Fill in: other observations — no classifications, just facts]
-
----
-
-## File: plans/compiled/TASK-7.sh
-
-### Facts (from file-manifest.json — authoritative, do not modify)
-
-| Property | Value |
-|----------|-------|
-| Lines added | +7 |
-| Lines removed | -0 |
-| Trailing newline | YES |
-| Added functions | — |
-| Modified functions | — |
-| Removed functions | — |
-| Added imports | — |
-
-### Intent
-
-[Fill in: one sentence on what changed, based on the diff]
-
-### Checklist
-
-- Unnecessary clone/unwrap/expect? [Fill in: Yes (cite location) / No]
-- Error handling: [Fill in: observation]
-- Dead code or unused imports? [Fill in: Yes / No]
-- New public API: tests present? [Fill in: Yes / No / Not applicable]
-- Change appears within plan scope? [Fill in: Yes / No / Unclear — no plan available yet]
-
-### Notes
-
-[Fill in: other observations — no classifications, just facts]
-
----
-
-## File: plans/compiled/TASK-8.py
-
-### Facts (from file-manifest.json — authoritative, do not modify)
-
-| Property | Value |
-|----------|-------|
-| Lines added | +44 |
-| Lines removed | -0 |
-| Trailing newline | YES |
-| Added functions | — |
-| Modified functions | — |
-| Removed functions | — |
-| Added imports | — |
-
-### Intent
-
-[Fill in: one sentence on what changed, based on the diff]
-
-### Checklist
-
-- Unnecessary clone/unwrap/expect? [Fill in: Yes (cite location) / No]
-- Error handling: [Fill in: observation]
-- Dead code or unused imports? [Fill in: Yes / No]
-- New public API: tests present? [Fill in: Yes / No / Not applicable]
-- Change appears within plan scope? [Fill in: Yes / No / Unclear — no plan available yet]
-
-### Notes
-
-[Fill in: other observations — no classifications, just facts]
-
----
-
-## File: plans/compiled/TASK-8.sh
-
-### Facts (from file-manifest.json — authoritative, do not modify)
-
-| Property | Value |
-|----------|-------|
-| Lines added | +7 |
-| Lines removed | -0 |
-| Trailing newline | YES |
-| Added functions | — |
-| Modified functions | — |
-| Removed functions | — |
-| Added imports | — |
-
-### Intent
-
-[Fill in: one sentence on what changed, based on the diff]
-
-### Checklist
-
-- Unnecessary clone/unwrap/expect? [Fill in: Yes (cite location) / No]
-- Error handling: [Fill in: observation]
-- Dead code or unused imports? [Fill in: Yes / No]
-- New public API: tests present? [Fill in: Yes / No / Not applicable]
-- Change appears within plan scope? [Fill in: Yes / No / Unclear — no plan available yet]
-
-### Notes
-
-[Fill in: other observations — no classifications, just facts]
-
----
-
-## File: plans/compiled/TASK-9.py
-
-### Facts (from file-manifest.json — authoritative, do not modify)
-
-| Property | Value |
-|----------|-------|
-| Lines added | +44 |
-| Lines removed | -0 |
-| Trailing newline | YES |
-| Added functions | — |
-| Modified functions | — |
-| Removed functions | — |
-| Added imports | — |
-
-### Intent
-
-[Fill in: one sentence on what changed, based on the diff]
-
-### Checklist
-
-- Unnecessary clone/unwrap/expect? [Fill in: Yes (cite location) / No]
-- Error handling: [Fill in: observation]
-- Dead code or unused imports? [Fill in: Yes / No]
-- New public API: tests present? [Fill in: Yes / No / Not applicable]
-- Change appears within plan scope? [Fill in: Yes / No / Unclear — no plan available yet]
-
-### Notes
-
-[Fill in: other observations — no classifications, just facts]
-
----
-
-## File: plans/compiled/TASK-9.sh
-
-### Facts (from file-manifest.json — authoritative, do not modify)
-
-| Property | Value |
-|----------|-------|
-| Lines added | +7 |
-| Lines removed | -0 |
-| Trailing newline | YES |
-| Added functions | — |
-| Modified functions | — |
-| Removed functions | — |
-| Added imports | — |
-
-### Intent
-
-[Fill in: one sentence on what changed, based on the diff]
-
-### Checklist
-
-- Unnecessary clone/unwrap/expect? [Fill in: Yes (cite location) / No]
-- Error handling: [Fill in: observation]
-- Dead code or unused imports? [Fill in: Yes / No]
-- New public API: tests present? [Fill in: Yes / No / Not applicable]
-- Change appears within plan scope? [Fill in: Yes / No / Unclear — no plan available yet]
-
-### Notes
-
-[Fill in: other observations — no classifications, just facts]
-
----
-
-## File: plans/compiled/TASK-PREP.py
-
-### Facts (from file-manifest.json — authoritative, do not modify)
-
-| Property | Value |
-|----------|-------|
-| Lines added | +44 |
-| Lines removed | -0 |
-| Trailing newline | YES |
-| Added functions | — |
-| Modified functions | — |
-| Removed functions | — |
-| Added imports | — |
-
-### Intent
-
-[Fill in: one sentence on what changed, based on the diff]
-
-### Checklist
-
-- Unnecessary clone/unwrap/expect? [Fill in: Yes (cite location) / No]
-- Error handling: [Fill in: observation]
-- Dead code or unused imports? [Fill in: Yes / No]
-- New public API: tests present? [Fill in: Yes / No / Not applicable]
-- Change appears within plan scope? [Fill in: Yes / No / Unclear — no plan available yet]
-
-### Notes
-
-[Fill in: other observations — no classifications, just facts]
-
----
-
-## File: plans/compiled/TASK-PREP.sh
-
-### Facts (from file-manifest.json — authoritative, do not modify)
-
-| Property | Value |
-|----------|-------|
-| Lines added | +7 |
-| Lines removed | -0 |
-| Trailing newline | YES |
-| Added functions | — |
-| Modified functions | — |
-| Removed functions | — |
-| Added imports | — |
-
-### Intent
-
-[Fill in: one sentence on what changed, based on the diff]
-
-### Checklist
-
-- Unnecessary clone/unwrap/expect? [Fill in: Yes (cite location) / No]
-- Error handling: [Fill in: observation]
-- Dead code or unused imports? [Fill in: Yes / No]
-- New public API: tests present? [Fill in: Yes / No / Not applicable]
-- Change appears within plan scope? [Fill in: Yes / No / Unclear — no plan available yet]
-
-### Notes
-
-[Fill in: other observations — no classifications, just facts]
-
----
-
-## File: plans/compiled/manifest.json
-
-### Facts (from file-manifest.json — authoritative, do not modify)
-
-| Property | Value |
-|----------|-------|
-| Lines added | +139 |
+| Lines added | +53 |
 | Lines removed | -0 |
 | Trailing newline | YES |
 | Added functions | — |
@@ -1230,7 +942,7 @@ Read `raw-diff.md` for diff context, then fill in the judgment fields below.
 
 | Property | Value |
 |----------|-------|
-| Lines added | +56 |
+| Lines added | +65 |
 | Lines removed | -41 |
 | Trailing newline | YES |
 | Added functions | run |
@@ -1397,6 +1109,38 @@ Read `raw-diff.md` for diff context, then fill in the judgment fields below.
 | Modified functions | — |
 | Removed functions | — |
 | Added imports | super::*, std::io::Write |
+
+### Intent
+
+[Fill in: one sentence on what changed, based on the diff]
+
+### Checklist
+
+- Unnecessary clone/unwrap/expect? [Fill in: Yes (cite location) / No]
+- Error handling: [Fill in: observation]
+- Dead code or unused imports? [Fill in: Yes / No]
+- New public API: tests present? [Fill in: Yes / No / Not applicable]
+- Change appears within plan scope? [Fill in: Yes / No / Unclear — no plan available yet]
+
+### Notes
+
+[Fill in: other observations — no classifications, just facts]
+
+---
+
+## File: tests/fixtures/sample-workspace/Cargo.lock
+
+### Facts (from file-manifest.json — authoritative, do not modify)
+
+| Property | Value |
+|----------|-------|
+| Lines added | +83 |
+| Lines removed | -0 |
+| Trailing newline | YES |
+| Added functions | — |
+| Modified functions | — |
+| Removed functions | — |
+| Added imports | — |
 
 ### Intent
 
