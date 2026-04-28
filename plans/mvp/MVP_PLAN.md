@@ -64,9 +64,8 @@ These are CRG-shaped maturity items. Built only when (a) the MVP has shipped, (b
 ### CLI
 
 ```
-rust-workspace-map index    [PATH] [-o FILE]                  # current behavior, behind subcommand
-rust-workspace-map validate [PATH] [-o FILE]                  # emits diagnostics into WorkspaceMap.errors
-rust-workspace-map lookup   [PATH] (--symbol NAME | --file PATH)
+rust-workspace-map index  [PATH] [-o FILE] [--validate]        # --validate runs OrphanFile + DeadReExport checks
+rust-workspace-map lookup [PATH] (--symbol NAME | --file PATH)
 ```
 
 ### Schema additions (additive only — no removals from existing schema)
@@ -103,7 +102,12 @@ pub struct SymbolEntry {     // map key = "crate::module::Name"
     //   - imported_by:    Vec<{crate_name, file, line}>
     //   - confidence:     EXTRACTED | INFERRED | AMBIGUOUS  (no inference path exists in MVP)
     // Crate-granularity imported_by/exported_by already lives in CrossReferences.types.
+    // Key format: root-module items = "crate::Name" (2 segments);
+    // nested-module items = "crate::module::Name" (3+ segments).
 }
+
+// The `cross_references.types` map is re-keyed from short-name to fully-qualified path
+// ("crate::module::Name") to avoid silent data loss on name collisions across crates.
 
 pub struct FileEntry {
     pub module_path: String,                 // joins back to the matching ModuleInfo
@@ -113,6 +117,8 @@ pub struct FileEntry {
     // they already exist in the hierarchical view via `module_path → ModuleInfo`.
     // This keeps the `files` index small while still giving agents an O(1) hop
     // from file path to the structural facts only available through this index.
+    // Inline modules (mod foo { ... }) share their parent's file.
+    // They are excluded from the `files` index to avoid one-file-to-many-module key collisions.
 }
 
 // New typed kind for ErrorEntry. Variants serde-rename to existing string values
@@ -135,8 +141,8 @@ pub enum DiagnosticKind {
 
 | Rule | Fires when | Pipeline category |
 |---|---|---|
-| `OrphanFile` | a `.rs` exists under a crate's source dir but no `mod foo;` / `pub mod foo;` declaration exists in the parent (per standard Rust `foo.rs` next to `lib.rs`/`mod.rs` or `foo/mod.rs` resolution). | #1 (~40%) |
-| `DeadReExport` | a `pub use a::b::C` where no item `C` exists in any module of `a` (or transitively through it). | #2 (~20%) |
+| `OrphanFile` | after `build_module_tree` returns for a crate, collect all `ModuleInfo.file` paths (excluding `<unresolved>`); walk the crate's `src/` for all `*.rs` files; any `.rs` on disk absent from the module-tree file set is orphan. Excludes `build.rs`, `src/bin/*.rs`, and test/example directories. | #1 (~40%) |
+| `DeadReExport` | a `pub use` path whose target cannot be resolved within the workspace. Algorithm: (1) resolve `crate::`, `self::`, `super::` prefixes; (2) if the first path segment is not a workspace member crate, skip (external re-export — not dead); (3) if the path is a glob (`pub use path::*`), skip (cannot evaluate); (4) for remaining intra-workspace paths, check whether the named item exists in any module reachable through the path prefix. Transitive re-export chains are not traced in MVP. | #2 (~20%) |
 
 Each finding becomes an `ErrorEntry { severity: Warning, kind: DiagnosticKind::OrphanFile | DeadReExport, file, line, message, … }` in `WorkspaceMap.errors`. Message includes a fix hint (e.g., `add 'pub mod foo;' to core/src/lib.rs`). Conservative recall is policy: false negatives over false positives.
 
@@ -152,6 +158,8 @@ Each finding becomes an `ErrorEntry { severity: Warning, kind: DiagnosticKind::O
 
 This is the *targeted query* form — the plan-decomposer asks one specific question and gets one specific answer, no JSON-dump-in-context.
 
+`lookup` is a human CLI convenience for the MVP. Pipeline agents should embed flat indexes in context (single JSON load) rather than making per-symbol CLI calls — each `lookup` invocation performs a full workspace scan. Revisit `lookup` as a pipeline tool after the cache layer ships.
+
 ---
 
 ## Pipeline integrations shipped *with* the MVP
@@ -160,7 +168,7 @@ The user's reframing makes pipeline integration part of the MVP, not a follow-up
 
 | Pipeline file | Change |
 |---|---|
-| `skills/compile-plan/SKILL.md` | **Authoritative gate.** Add a pre-check step: run `rust-workspace-map validate <project>`. Block plan execution on any `OrphanFile` or `DeadReExport` finding (exit code 2). This is deterministic — no agent compliance required. |
+| `skills/compile-plan/SKILL.md` | **Authoritative gate.** Add a pre-check step: run `rust-workspace-map index --validate <project>`. Block plan execution on any `OrphanFile` or `DeadReExport` finding (exit code 2). This is deterministic — no agent compliance required. |
 | `agents/plan-decomposer.md` | **Soft suggestion only.** Add the **Module Wiring Check** guidance from `feature-requests/reduce_recurring_problems.md` §3.1, recommending — not requiring — that the agent call `rust-workspace-map lookup --file <parent>` when introducing a new file, to confirm intended siblings. Optionally call `lookup --symbol <name>` to check for name collisions on a planned re-export. The plan-decomposer's correctness is *not* gated on this; the deterministic gate lives in `compile-plan`. |
 
 The `compile-plan` pre-check is what turns the binary from a CLI demo into a real failure-prevention tool. The plan-decomposer suggestion is upstream defense-in-depth: free if the agent follows it, harmless if it doesn't, never the sole gate.
@@ -176,12 +184,12 @@ The other integrations from the original design (`enrich-plan-gather` Step 2 rep
 | File | Action |
 |---|---|
 | `src/schema.rs` | Add `SymbolEntry` (slim — see schema block), `FileEntry` (slim — three fields), `DiagnosticKind` enum. Extend `WorkspaceMap` with `symbols`, `name_index`, `files` BTreeMap fields. Migrate `ErrorEntry.kind: String → kind: DiagnosticKind` (serde-renamed to keep JSON output stable). **Do not add** `Confidence`, `Warning`, `WarningKind`, `ImportSite`, `ReExportSite`, or `warnings: Vec<Warning>`. |
-| `src/lib.rs` | After existing `cross_refs::compute`, call `indexes::derive(&map)` to populate `symbols` / `files` / `name_index` in a single pass. After `validate::run` produces findings, merge them into the existing `errors` vec. Update emit-sites in this file to use the new `DiagnosticKind` variants. |
-| `src/main.rs` | Switch to `clap` subcommands: `index`, `validate`, `lookup`. Bare-path form removed. Each subcommand takes a path. **No `--from-stdin`** — deferred. |
-| `src/validate.rs` | NEW — pure function `run(&WorkspaceMap) -> Vec<ErrorEntry>` implementing `OrphanFile` (fs walk vs `module_tree::resolve_module_path`) and `DeadReExport` (forward scan against `crates[].modules[].public_items[]`). Emits with `severity: Warning` and the appropriate `DiagnosticKind`. |
+| `src/lib.rs` | After existing `cross_refs::compute`, call `indexes::derive_from_crates(&crate_infos)` and pass results to `WorkspaceMap::builder()`. Run validation (if `--validate`) after construction, merging findings into `errors`. Update emit-sites in this file to use the new `DiagnosticKind` variants. Set `WorkspaceInfo.root` to the discovered workspace root path (currently hardcoded to `"."`). |
+| `src/main.rs` | Switch to `clap` subcommands: `index` (with `--validate` flag), `lookup`. Bare-path form removed. Each subcommand takes a path. **No `--from-stdin`** — deferred. |
 | `src/lookup.rs` | NEW — pure function over `&WorkspaceMap` implementing `--symbol` and `--file` filters. `--file` joins `FileEntry` to the matching `ModuleInfo`. |
-| `src/indexes.rs` | NEW — pure function `derive(&WorkspaceMap) -> (symbols, name_index, files)` in one pass over `crates[].modules[]`. No second AST traversal. |
-| `src/module_tree.rs`, `src/file_parser.rs` | Update emit-sites to construct `ErrorEntry` with `kind: DiagnosticKind::OrphanedModule` etc., instead of stringly-typed `kind: "orphaned_module".to_string()`. Mechanical refactor. |
+| `src/validate.rs` | Validation is merged into `index --validate`. No separate subcommand. The `OrphanFile` and `DeadReExport` logic lives in `src/validate.rs` as a function called by `lib.rs::run()` when `--validate` is set. |
+| `src/indexes.rs` | NEW — pure function `derive_from_crates(&[CrateInfo]) -> (symbols, name_index, files)` in one pass over `crates[].modules[]`. Called before `WorkspaceMap` builder. No second AST traversal. |
+| `src/module_tree.rs`, `src/file_parser.rs` | Update emit-sites to construct `ErrorEntry` with `kind: DiagnosticKind::OrphanedModule` etc. Fix error-vec cloning at line 252 (O(n²) memory waste) and fragile `unwrap_or` at line 33. |
 | `src/cross_refs.rs` | No structural changes for the MVP. The crate-granularity `imported_by`/`exported_by` already collected stays as-is. File:line granularity per symbol is deferred until a measured workflow cites it. |
 | `tests/fixtures/sample-workspace/` | Add `bad-orphan/` and `bad-dead-reexport/` sub-fixtures. |
 | `tests/integration_test.rs` | (a) Rewrite **every** existing invocation from the bare-path form to `index <path>` (this is the breaking-change call-site sweep). (b) Add tests for `validate` exit code 2 on the new fixtures. (c) Add tests for `lookup --symbol` (single + ambiguous + not-found) and `lookup --file`. |
@@ -211,10 +219,10 @@ The other integrations from the original design (`enrich-plan-gather` Step 2 rep
 2. **Call-site sweep**: every invocation in `tests/integration_test.rs` rewritten from the bare-path form to `index <path>` in the same commit as the breaking change. README examples and any wrapper scripts in `rust-development-pipeline/` updated in lockstep. This is the flag-day checklist for D1.
 3. **Existing tests green**: all 8 integration tests in `rust-workspace-map/tests/integration_test.rs` still pass after the rewrite, with the additive schema.
 4. **DiagnosticKind migration green**: the existing `orphaned_module` warning emitted by `module_tree.rs` still serializes as the string `"orphaned_module"` in JSON (verified by an integration test on a known-orphan fixture). No JSON-output regression.
-5. **New unit fixtures**: `bad-orphan/` triggers an `OrphanFile` finding naming the parent file; `bad-dead-reexport/` triggers a `DeadReExport` finding. `validate` exits `2` in both cases. Findings appear in `WorkspaceMap.errors` with `severity: Warning`.
+5. **New unit fixtures**: `bad-orphan/` triggers an `OrphanFile` finding naming the parent file; `bad-dead-reexport/` triggers a `DeadReExport` finding. `index --validate` exits `2` in both cases. Findings appear in `WorkspaceMap.errors` with `severity: Warning`.
 6. **Lookup**: against the existing `sample-workspace`, `lookup --symbol Task` returns the matching `SymbolEntry`; `lookup --file core/src/task.rs` returns the joined `FileEntry`+`ModuleInfo`; `lookup --symbol DoesNotExist` exits `1`.
-7. **Real-world dry-run + cache baseline**: `rust-workspace-map index /Users/tony/programming/castep-cell-io` and `validate /Users/tony/programming/castep-cell-io` (303 files) run to completion. Record wall-time for both in `notes/` as the **0.1.0→0.2.0 cache baseline**. The cache layer (currently deferred) is allowed only if a future change pushes wall-time past 2× this baseline AND `compile-plan` runs validate ≥3× per phase. Estimated baseline: 100–400 ms; the original 2 s threshold is unlikely to ever trigger.
-8. **Pipeline smoke**: in `rust-development-pipeline`, run `compile-plan` against a synthetic plan that creates a file without a `pub mod`. The pre-check blocks. Run another synthetic plan that introduces a `pub use` to a nonexistent symbol. The pre-check blocks. Both behaviors are deterministic — no LLM compliance involved.
+7. **Real-world dry-run + cache baseline**: `rust-workspace-map index --validate /Users/tony/programming/castep-cell-io` and `rust-workspace-map index --validate /Users/tony/programming/castep-cell-io` (303 files) run to completion. Record wall-time in `notes/` as the **0.1.0→0.2.0 cache baseline**. The cache layer (currently deferred) is allowed only if a future change pushes wall-time past 2× this baseline AND `compile-plan` runs index --validate ≥3× per phase. Estimated baseline: 100–400 ms; the original 2 s threshold is unlikely to ever trigger.
+8. **Pipeline smoke**: in `rust-development-pipeline`, run `compile-plan` against a synthetic plan that creates a file without a `pub mod`. The pre-check blocks (via `index --validate`). Run another synthetic plan that introduces a `pub use` to a nonexistent symbol. The pre-check blocks (via `index --validate`). Both behaviors are deterministic — no LLM compliance involved.
 
 ---
 
@@ -257,10 +265,10 @@ In `README.md` of `rust-workspace-map`, add a short "Inspiration" section:
 
 - **D1**: `index` mandatory immediately. Bare-path form removed in v0.2.0. No deprecation alias. Call-site sweep is part of the same commit (verification step 2).
 - **D2**: MVP scope =
-  - **subcommands**: `index`, `validate`, `lookup` (no `--from-stdin`)
-  - **schema additions**: slim `SymbolEntry`, slim `FileEntry`, three flat indexes (`symbols`, `name_index`, `files`), `DiagnosticKind` enum (replacing `ErrorEntry.kind: String`)
+  - **subcommands**: `index` (with `--validate` flag), `lookup` (no `--from-stdin`)
+  - **schema additions**: slim `SymbolEntry`, slim `FileEntry`, three flat indexes (`symbols`, `name_index`, `files`), `DiagnosticKind` enum (replacing `ErrorEntry.kind: String`), re-key `cross_references.types` from short-name to fully-qualified path
   - **schema *not* added**: `Confidence`, `Warning`, `WarningKind`, `ImportSite`, `ReExportSite`, parallel `warnings: Vec<Warning>`
-  - **validate rules**: `OrphanFile`, `DeadReExport` (no `UnreachablePub`, no `UnsupportedLayout` warning)
+  - **validate rules**: `OrphanFile`, `DeadReExport` (5-case algorithm; run via `index --validate`)
   - **pipeline integrations**: `compile-plan` pre-check (deterministic gate); `plan-decomposer` Module Wiring Check (soft suggestion only)
 - **D3**: Cache layer deferred. Gate: wall-time on `castep-cell-io` exceeds 2× the verification-step-7 baseline AND `compile-plan` runs validate ≥3× per phase.
 - **D4**: Pipeline integrations ship *with* the MVP, not after — the tool isn't done until the pipeline uses it.
