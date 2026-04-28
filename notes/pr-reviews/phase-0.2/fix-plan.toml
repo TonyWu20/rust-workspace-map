@@ -1,27 +1,3 @@
-[meta]
-title = "Phase 0.2 Fix Plan"
-source_branch = "phase-0.2"
-created = "2026-04-28"
+# No fix tasks — PR approved without fixes
 
-[tasks.TASK-1]
-description = "Wrap module_tree errors with kind=module_tree_error to align with plan spec"
-type = "replace"
-acceptance = [
-    "cargo check -p rust-workspace-map",
-    "cargo test -p rust-workspace-map",
-    "rg -F '\"module_tree_error\"' src/lib.rs",
-]
-
-[[tasks.TASK-1.changes]]
-file = "src/lib.rs"
-before = '''
-            crate_errors.extend(collected_errors);
-'''
-after = '''
-            for err in collected_errors {
-                crate_errors.push(ErrorEntry {
-                    kind: "module_tree_error".to_string(),
-                    ..err
-                });
-            }
-'''
+[tasks]
