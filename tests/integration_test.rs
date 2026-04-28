@@ -126,3 +126,262 @@ fn test_missing_path_exits_nonzero() {
         "should exit non-zero for invalid path"
     );
 }
+
+fn run_binary(path: &str) -> std::process::Output {
+    Command::new(&binary_path())
+        .arg(path)
+        .output()
+        .expect("failed to execute binary")
+}
+
+fn parse_output(output: &std::process::Output) -> serde_json::Value {
+    serde_json::from_str(&String::from_utf8_lossy(&output.stdout)).unwrap()
+}
+
+fn write_cargo_toml(dir: &std::path::Path, content: &str) {
+    let mut f = std::fs::File::create(dir.join("Cargo.toml")).unwrap();
+    use std::io::Write;
+    f.write_all(content.as_bytes()).unwrap();
+}
+
+fn setup_crate(dir: &std::path::Path, lib_content: &str) {
+    let src = dir.join("src");
+    std::fs::create_dir_all(&src).unwrap();
+    std::fs::write(src.join("lib.rs"), lib_content).unwrap();
+}
+
+#[test]
+fn test_parse_failure_error_entry() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+
+    // Create workspace Cargo.toml
+    write_cargo_toml(root, r#"
+[workspace]
+members = ["good_crate", "bad_crate"]
+"#);
+
+    // Good crate with valid Rust
+    setup_crate(&root.join("good_crate"), "pub struct Good {}");
+
+    // Bad crate with invalid Rust syntax
+    setup_crate(&root.join("bad_crate"), "pub struct { invalid rust syntax");
+
+    let output = run_binary(root.to_str().unwrap());
+    assert!(output.status.success());
+
+    let json = parse_output(&output);
+    let errors: Vec<&serde_json::Value> = extract_array(&json, "errors");
+
+    let parse_errors: Vec<_> = errors.iter()
+        .filter(|e| {
+            e["kind"].as_str().unwrap() == "syn_parse_error"
+        })
+        .collect();
+
+    assert!(!parse_errors.is_empty(), "should have parse error entries");
+    assert_eq!(parse_errors[0]["severity"].as_str().unwrap(), "error");
+}
+
+#[test]
+fn test_missing_workspace_section() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+
+    // Cargo.toml without [workspace] section
+    write_cargo_toml(root, r#"
+[package]
+name = "standalone"
+version = "0.1.0"
+edition = "2021"
+"#);
+
+    let output = run_binary(root.to_str().unwrap());
+
+    // Should exit non-zero because workspace is missing
+    assert!(
+        !output.status.success(),
+        "should exit non-zero for missing workspace section"
+    );
+}
+
+#[test]
+fn test_glob_member_patterns() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+
+    write_cargo_toml(root, r#"
+[workspace]
+members = ["crates/*"]
+"#);
+
+    for name in &["alpha", "beta", "gamma"] {
+        setup_crate(&root.join("crates").join(name), format!("pub struct {name} {{}}").as_str());
+    }
+
+    let output = run_binary(root.to_str().unwrap());
+    assert!(output.status.success());
+
+    let json = parse_output(&output);
+    let crates = extract_array(&json, "crates");
+    let names: Vec<&str> = crates.iter()
+        .map(|c| c["name"].as_str().unwrap())
+        .collect();
+
+    assert!(names.contains(&"alpha"));
+    assert!(names.contains(&"beta"));
+    assert!(names.contains(&"gamma"));
+    assert_eq!(names.len(), 3);
+}
+
+#[test]
+fn test_workspace_with_exclude() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+
+    write_cargo_toml(root, r#"
+[workspace]
+members = ["a", "b", "c"]
+exclude = ["b"]
+"#);
+
+    setup_crate(&root.join("a"), "pub struct A {}");
+    setup_crate(&root.join("b"), "pub struct B {}");
+    setup_crate(&root.join("c"), "pub struct C {}");
+
+    let output = run_binary(root.to_str().unwrap());
+    assert!(output.status.success());
+
+    let json = parse_output(&output);
+    let crates = extract_array(&json, "crates");
+    let names: Vec<&str> = crates.iter()
+        .map(|c| c["name"].as_str().unwrap())
+        .collect();
+
+    assert!(names.contains(&"a"));
+    assert!(!names.contains(&"b"));
+    assert!(names.contains(&"c"));
+}
+
+#[test]
+fn test_deeply_nested_modules() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+
+    write_cargo_toml(root, r#"
+[workspace]
+members = ["."]
+
+[package]
+name = "nested"
+version = "0.1.0"
+edition = "2021"
+"#);
+
+    let src = root.join("src");
+    let foo = src.join("foo");
+    let bar = foo.join("bar");
+    std::fs::create_dir_all(&bar).unwrap();
+
+    // lib.rs declares mod foo
+    std::fs::write(src.join("lib.rs"), "mod foo;").unwrap();
+    // foo.rs declares mod bar
+    std::fs::write(foo.join("foo.rs"), "mod bar;").unwrap();
+    // bar/baz.rs declares mod baz
+    std::fs::write(bar.join("bar.rs"), "mod baz;").unwrap();
+    // baz.rs with a struct
+    std::fs::write(bar.join("baz.rs"), "pub struct Deep {}").unwrap();
+
+    let output = run_binary(root.to_str().unwrap());
+    assert!(output.status.success());
+
+    let json = parse_output(&output);
+    let crates = extract_array(&json, "crates");
+    let nested_crate = crates.iter().find(|c| c["name"].as_str().unwrap() == "nested").unwrap();
+
+    let module_paths: Vec<&str> = extract_array(&nested_crate["modules"], "path")
+        .iter()
+        .map(|m| m.as_str().unwrap())
+        .collect();
+
+    assert!(module_paths.iter().any(|p| *p == "nested"));
+    assert!(module_paths.iter().any(|p| *p == "nested::foo"));
+    assert!(module_paths.iter().any(|p| *p == "nested::foo::bar"));
+    assert!(module_paths.iter().any(|p| *p == "nested::foo::bar::baz"));
+}
+
+#[test]
+fn test_reexport_chains() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+
+    write_cargo_toml(root, r#"
+[workspace]
+members = ["."]
+
+[package]
+name = "reexporter"
+version = "0.1.0"
+edition = "2021"
+"#);
+
+    let src = root.join("src");
+    std::fs::create_dir_all(&src).unwrap();
+
+    // lib.rs with re-export chain
+    std::fs::write(src.join("lib.rs"), "
+mod inner {
+    pub struct Secret;
+}
+pub use inner::Secret;
+").unwrap();
+
+    let output = run_binary(root.to_str().unwrap());
+    assert!(output.status.success());
+
+    let json = parse_output(&output);
+    let crates = extract_array(&json, "crates");
+    let reexporter = crates.iter().find(|c| c["name"].as_str().unwrap() == "reexporter").unwrap();
+
+    let re_exports: Vec<&serde_json::Value> = extract_array(&reexporter["modules"])
+        .iter()
+        .flat_map(|m| extract_array(m, "reExports"))
+        .collect();
+
+    let has_secret = re_exports.iter().any(|re| {
+        re["importPath"].as_str().unwrap().contains("Secret")
+    });
+    assert!(has_secret, "should have re-export for Secret");
+}
+
+#[test]
+fn test_output_via_flag() {
+    let tmp = tempfile::tempdir().unwrap();
+    let fixture = std::path::Path::new("tests/fixtures/sample-workspace");
+    let output_path = tmp.path().join("output.json");
+
+    // Run with -o flag
+    let output1 = Command::new(&binary_path())
+        .arg(fixture)
+        .arg("-o")
+        .arg(output_path.clone())
+        .output()
+        .expect("failed to execute binary");
+    assert!(output1.status.success());
+
+    // Run without -o, capture stdout
+    let output2 = Command::new(&binary_path())
+        .arg(fixture)
+        .output()
+        .expect("failed to execute binary");
+    assert!(output2.status.success());
+
+    // Compare file content with stdout
+    let file_content = std::fs::read_to_string(&output_path).unwrap();
+    let stdout_content = String::from_utf8_lossy(&output2.stdout);
+    assert_eq!(
+        file_content.trim(),
+        stdout_content.trim(),
+        "file output should match stdout"
+    );
+}
