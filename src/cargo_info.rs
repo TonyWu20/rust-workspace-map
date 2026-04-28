@@ -88,3 +88,64 @@ pub fn parse_cargo_toml(path: &Path) -> Result<(PackageInfo, DepInfo)> {
 
     Ok((package, deps))
 }
+
+// ── Tests ───────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+
+    fn write_cargo_toml(dir: &std::path::Path, content: &str) {
+        let mut f = std::fs::File::create(dir.join("Cargo.toml")).unwrap();
+        f.write_all(content.as_bytes()).unwrap();
+    }
+
+    #[test]
+    fn parse_cargo_toml_parses_minimal() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_cargo_toml(tmp.path(), r#"
+[package]
+name = "test-pkg"
+version = "1.0.0"
+edition = "2021"
+"#);
+        let (pkg, _deps) = parse_cargo_toml(tmp.path().join("Cargo.toml").as_path()).unwrap();
+        assert_eq!(pkg.name, "test-pkg");
+        assert_eq!(pkg.version, "1.0.0");
+        assert_eq!(pkg.edition, "2021");
+    }
+
+    #[test]
+    fn parse_cargo_toml_uses_defaults_for_missing_package() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_cargo_toml(tmp.path(), "");
+        let (pkg, _deps) = parse_cargo_toml(tmp.path().join("Cargo.toml").as_path()).unwrap();
+        assert_eq!(pkg.name, "unknown");
+        assert_eq!(pkg.edition, "2021");
+    }
+
+    #[test]
+    fn parse_cargo_toml_distinguishes_deps() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_cargo_toml(tmp.path(), r#"
+[package]
+name = "test-pkg"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+foo = "1"
+bar = { workspace = true }
+
+[dev-dependencies]
+baz = "2"
+qux = { workspace = true }
+"#);
+        let (_, deps) = parse_cargo_toml(tmp.path().join("Cargo.toml").as_path()).unwrap();
+        assert_eq!(deps.normal, vec!["foo"]);
+        assert_eq!(deps.dev, vec!["baz"]);
+        assert!(deps.workspace_members.contains(&"bar".to_string()));
+        assert!(deps.workspace_members.contains(&"qux".to_string()));
+    }
+}

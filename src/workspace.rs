@@ -107,7 +107,97 @@ pub fn enumerate_members(root: &Path) -> Result<Vec<PathBuf>> {
     Ok(result)
 }
 
-/// For a crate directory, determine its entry-point file(s).
+// ── Tests ───────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+
+    fn write_cargo_toml(dir: &std::path::Path, content: &str) {
+        let mut f = std::fs::File::create(dir.join("Cargo.toml")).unwrap();
+        f.write_all(content.as_bytes()).unwrap();
+    }
+
+    fn setup_crate(dir: &std::path::Path) {
+        let src = dir.join("src");
+        std::fs::create_dir_all(&src).unwrap();
+        std::fs::write(src.join("lib.rs"), "").unwrap();
+    }
+
+    #[test]
+    fn find_workspace_root_finds_cargo_toml() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("subdir").join("nested");
+        std::fs::create_dir_all(&path).unwrap();
+        write_cargo_toml(tmp.path(), "[workspace]");
+        let result = find_workspace_root(&path).unwrap();
+        assert_eq!(result, tmp.path());
+    }
+
+    #[test]
+    fn enumerate_members_returns_members() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_cargo_toml(tmp.path(), r#"
+[workspace]
+members = ["crate_a", "crate_b"]
+"#);
+        setup_crate(tmp.path().join("crate_a").as_path());
+        setup_crate(tmp.path().join("crate_b").as_path());
+        let members = enumerate_members(tmp.path()).unwrap();
+        assert_eq!(members.len(), 2);
+    }
+
+    #[test]
+    fn enumerate_members_returns_err_for_missing_workspace() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_cargo_toml(tmp.path(), "[dependencies]\nfoo = \"1\"");
+        let result = enumerate_members(tmp.path());
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            Error::MissingWorkspaceSection => {},
+            other => panic!("expected MissingWorkspaceSection, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn enumerate_members_applies_exclude() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_cargo_toml(tmp.path(), r#"
+[workspace]
+members = ["a", "b", "c"]
+exclude = ["b"]
+"#);
+        setup_crate(tmp.path().join("a").as_path());
+        setup_crate(tmp.path().join("b").as_path());
+        setup_crate(tmp.path().join("c").as_path());
+        let members = enumerate_members(tmp.path()).unwrap();
+        let names: Vec<_> = members.iter().map(|p| p.file_name().unwrap().to_string_lossy()).collect();
+        assert!(names.contains(&"a".as_ref()));
+        assert!(!names.contains(&"b".as_ref()));
+        assert!(names.contains(&"c".as_ref()));
+    }
+
+    #[test]
+    fn resolve_crate_roots_detects_lib() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(tmp.path().join("src")).unwrap();
+        std::fs::write(tmp.path().join("src").join("lib.rs"), "").unwrap();
+        let roots = resolve_crate_roots(tmp.path());
+        assert_eq!(roots.len(), 1);
+        assert_eq!(roots[0].1, CrateType::Lib);
+    }
+
+    #[test]
+    fn resolve_crate_roots_detects_bin() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(tmp.path().join("src")).unwrap();
+        std::fs::write(tmp.path().join("src").join("main.rs"), "").unwrap();
+        let roots = resolve_crate_roots(tmp.path());
+        assert_eq!(roots.len(), 1);
+        assert_eq!(roots[0].1, CrateType::Bin);
+    }
+}
 /// Returns `(path, CrateType)` pairs — one for `src/lib.rs` (Lib),
 /// one for `src/main.rs` (Bin), or empty if neither exists.
 pub fn resolve_crate_roots(crate_dir: &Path) -> Vec<(PathBuf, CrateType)> {

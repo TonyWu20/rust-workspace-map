@@ -93,6 +93,87 @@ pub fn compute(crates: &mut [CrateInfo]) -> CrossReferences {
     CrossReferences { types: types_map }
 }
 
+// ── Tests ───────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::schema::{ModuleInfo, PublicItem, SubmoduleDecl};
+
+    fn make_crate(name: &str, items: Vec<(String, ItemKind)>) -> CrateInfo {
+        let public_items: Vec<PublicItem> = items
+            .into_iter()
+            .map(|(n, k)| {
+                PublicItem::builder()
+                    .kind(k)
+                    .name(n)
+                    .file(String::new())
+                    .line(1)
+                    .visibility("pub".to_string())
+                    .generics(String::new())
+                    .attrs(Default::default())
+                    .build()
+            })
+            .collect();
+        let module = ModuleInfo::builder()
+            .path("".to_string())
+            .file(String::new())
+            .visibility("pub".to_string())
+            .public_items(public_items)
+            .build();
+        CrateInfo::builder()
+            .name(name.to_string())
+            .root(String::new())
+            .package(
+                schema::PackageInfo::builder()
+                    .name(name.to_string())
+                    .version("0.1.0".to_string())
+                    .edition("2021".to_string())
+                    .crate_type(schema::CrateType::Lib)
+                    .build(),
+            )
+            .modules(vec![module])
+            .deps(Default::default())
+            .build()
+    }
+
+    #[test]
+    fn compute_finds_cross_crate_import() {
+        let mut crates = vec![
+            make_crate("core", vec![
+                ("Task".to_string(), ItemKind::Struct),
+            ]),
+            make_crate("engine", vec![]),
+        ];
+        // Manually add an import in engine that references core::Task
+        let engine_module = &mut crates[1].modules[0];
+        engine_module.imports.push(Import {
+            path: "core::Task".to_string(),
+            line: 1,
+        });
+        let refs = compute(&mut crates);
+        // Task should be in cross-references
+        assert!(refs.types.contains_key("Task"));
+        let task_ref = &refs.types["Task"];
+        assert_eq!(task_ref.crate_name, "core");
+        // engine should have a cross_crate_import
+        assert_eq!(crates[1].cross_crate_imports.len(), 1);
+        assert_eq!(crates[1].cross_crate_imports[0].target_crate, "core");
+    }
+
+    #[test]
+    fn compute_empty_for_no_cross_references() {
+        let crates = vec![
+            make_crate("a", vec![("Foo".to_string(), ItemKind::Struct)]),
+            make_crate("b", vec![("Bar".to_string(), ItemKind::Struct)]),
+        ];
+        let mut crates_mut = crates;
+        let refs = compute(&mut crates_mut);
+        // No cross references since no crate imports from another
+        assert!(refs.types.is_empty() || refs.types.values().all(|t| t.imported_by.is_empty()));
+    }
+}
+
 // Helper: convert ItemKind to a short string for the TypeRef.kind field.
 impl crate::schema::PublicItem {
     #[must_use]

@@ -644,3 +644,138 @@ fn extract_re_exports_from_tree(
             .collect(),
     }
 }
+
+// ── Tests ───────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::schema::{Import, ReExport, SubmoduleDecl};
+    use std::path::PathBuf;
+
+    fn parse_source(src: &str) -> ParsedFile {
+        let tmp = std::env::temp_dir().join("parse_test.rs");
+        std::fs::write(&tmp, src).unwrap();
+        let result = parse_file(&tmp);
+        std::fs::remove_file(&tmp).ok();
+        result
+    }
+
+    #[test]
+    fn parse_file_returns_ast_for_valid_source() {
+        let src = "pub struct Foo { x: i32 }";
+        let result = parse_source(src);
+        assert!(result.parse_error.is_none());
+        assert_eq!(result.ast.items.len(), 1);
+    }
+
+    #[test]
+    fn parse_file_returns_error_for_invalid_source() {
+        let src = "pub struct { invalid rust }";
+        let result = parse_source(src);
+        assert!(result.parse_error.is_some());
+        let err = result.parse_error.as_ref().unwrap();
+        assert!(!err.message.is_empty());
+        assert!(err.line > 0);
+    }
+
+    #[test]
+    fn parse_file_returns_empty_for_empty_file() {
+        let result = parse_source("");
+        assert!(result.parse_error.is_none());
+        assert!(result.file_info.public_items.is_empty());
+    }
+
+    #[test]
+    fn extract_public_items_finds_struct_enum_trait_fn() {
+        let src = "pub struct Foo {} pub enum Bar { A, B } pub trait Baz {} pub fn hello() {}";
+        let result = parse_source(src);
+        let items = extract_public_items(&result.ast.items);
+        let names: Vec<_> = items.iter().map(|i| i.name.as_str()).collect();
+        assert!(names.contains(&"Foo"));
+        assert!(names.contains(&"Bar"));
+        assert!(names.contains(&"Baz"));
+        assert!(names.contains(&"hello"));
+    }
+
+    #[test]
+    fn extract_public_items_empty_for_no_public_items() {
+        let src = "struct Private {} fn private_fn() {}";
+        let result = parse_source(src);
+        let items = extract_public_items(&result.ast.items);
+        assert!(items.is_empty());
+    }
+
+    #[test]
+    fn extract_imports_finds_use_statements() {
+        let src = "use std::collections::BTreeMap;";
+        let result = parse_source(src);
+        let imports = extract_imports(&result.ast.items);
+        assert_eq!(imports.len(), 1);
+        assert_eq!(imports[0].path, "std::collections::BTreeMap");
+    }
+
+    #[test]
+    fn extract_re_exports_finds_pub_use() {
+        let src = "pub use crate::foo;";
+        let result = parse_source(src);
+        let re_exports = extract_re_exports(&result.ast.items);
+        assert_eq!(re_exports.len(), 1);
+        assert_eq!(re_exports[0].import_path, "crate::foo");
+        assert_eq!(re_exports[0].export_path, "foo");
+    }
+
+    #[test]
+    fn extract_re_exports_finds_rename() {
+        let src = "pub use crate::foo as bar;";
+        let result = parse_source(src);
+        let re_exports = extract_re_exports(&result.ast.items);
+        assert_eq!(re_exports.len(), 1);
+        assert_eq!(re_exports[0].import_path, "crate::foo as bar");
+        assert_eq!(re_exports[0].export_path, "bar");
+    }
+
+    #[test]
+    fn extract_submodules_finds_mod_declarations() {
+        let src = "mod foo; mod bar;";
+        let result = parse_source(src);
+        let subs = extract_submodules(&result.ast.items);
+        assert_eq!(subs.len(), 2);
+        let names: Vec<_> = subs.iter().map(|s| s.name.as_str()).collect();
+        assert!(names.contains(&"bar"));
+        assert!(names.contains(&"foo"));
+    }
+
+    #[test]
+    fn extract_submodules_marks_cfg_test() {
+        let src = "#[cfg(test)] mod inner;";
+        let result = parse_source(src);
+        let subs = extract_submodules(&result.ast.items);
+        assert_eq!(subs.len(), 1);
+        assert!(subs[0].is_test);
+    }
+
+    #[test]
+    fn extract_impls_finds_fn_type_const() {
+        let src = "impl MyType { pub fn foo(&self) {} pub type Alias = u32; pub const N: usize = 42; }";
+        let result = parse_source(src);
+        let impls = extract_impls(&result.ast.items);
+        assert_eq!(impls.len(), 1);
+        assert_eq!(impls[0].type_, "MyType");
+        assert_eq!(impls[0].items.len(), 3);
+    }
+
+    #[test]
+    fn build_parse_error_entry_constructs_error() {
+        let path = PathBuf::from("test.rs");
+        let err = SynParseError {
+            message: "expected `;`".to_string(),
+            line: 5,
+        };
+        let entry = build_parse_error_entry(&path, &err);
+        assert_eq!(entry.file, "test.rs");
+        assert_eq!(entry.line, 5);
+        assert_eq!(entry.kind, "syn_parse_error");
+        assert_eq!(entry.severity, ErrorSeverity::Error);
+    }
+}

@@ -212,3 +212,40 @@
     123 |         if let Some(ci) = info {
     ```
 
+### TASK-9: Add unit tests for file_parser, module_tree, workspace, cargo_info, cross_refs, and render
+- **Status**: ✗ Failed
+- **Validation output**:
+  - `cargo test -p rust-workspace-map`: FAILED (exit 101)
+    ```
+    -------------------------------------- this expression has type `Vec<PathBuf>`
+    ...
+      40 |           .par_iter()
+         |            ---------- `ParallelIterator::Item` is `&PathBuf` here
+      41 |           .map(|dir| {
+         |  __________^
+      42 | |             let cargo_toml = dir.join("Cargo.toml");
+      43 | |             let mut crate_errors = Vec::new();
+    ...    |
+     116 | |             (Some(crate_info), crate_errors)
+     117 | |         })
+         | |__________^ `ParallelIterator::Item` changed to `(Option<CrateInfo>, Vec<ErrorEntry>)` here
+    note: required by a bound in `rayon::iter::ParallelIterator::collect`
+        --> /Users/tony/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rayon-1.12.0/src/iter/mod.rs:2056:12
+         |
+    2054 |     fn collect<C>(self) -> C
+         |        ------- required by a bound in this associated function
+    2055 |     where
+    2056 |         C: FromParallelIterator<Self::Item>,
+         |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `ParallelIterator::collect`
+         = note: the full name for the type has been written to '/Users/tony/programming/rust-workspace-map/target/debug/deps/rust_workspace_map-453a2fe558063110.long-type-13358229255708071102.txt'
+         = note: consider using `--verbose` to print the full type name to the console
+    
+    error[E0308]: mismatched types
+       --> src/lib.rs:123:16
+        |
+    123 |         if let Some(ci) = info {
+        |                ^^^^^^^^   ---- this expression has type `CrateInfo`
+        |                |
+        |                expected `CrateInfo`, found `Option<_>`
+    ```
+

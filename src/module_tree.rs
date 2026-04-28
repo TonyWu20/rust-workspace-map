@@ -250,3 +250,54 @@ fn process_module_info(
 
     (modules, errors.clone())
 }
+
+// ── Tests ───────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::schema::ErrorEntry;
+
+    #[test]
+    fn resolve_module_path_finds_rs_file() {
+        let tmp = std::env::temp_dir().join("resolve_test");
+        let _ = std::fs::create_dir_all(&tmp);
+        let mod_file = tmp.join("foo.rs");
+        std::fs::write(&mod_file, "").ok();
+        let result = resolve_module_path(&tmp, "foo");
+        assert_eq!(result, Some(mod_file));
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn resolve_module_path_finds_mod_rs() {
+        let tmp = std::env::temp_dir().join("resolve_test2");
+        let _ = std::fs::create_dir_all(&tmp);
+        let mod_dir = tmp.join("bar");
+        let _ = std::fs::create_dir_all(&mod_dir);
+        let mod_rs = mod_dir.join("mod.rs");
+        std::fs::write(&mod_rs, "").ok();
+        let result = resolve_module_path(&tmp, "bar");
+        assert_eq!(result, Some(mod_rs));
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn resolve_module_path_returns_none_for_missing() {
+        let tmp = std::env::temp_dir().join("resolve_test3");
+        let _ = std::fs::create_dir_all(&tmp);
+        let result = resolve_module_path(&tmp, "nonexistent");
+        assert!(result.is_none());
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn build_module_tree_returns_empty_for_nonexistent() {
+        let tmp = std::env::temp_dir().join("bmt_test");
+        let _ = std::fs::create_dir_all(&tmp);
+        let (modules, errors) = build_module_tree(&tmp, "test");
+        assert!(modules.is_empty());
+        assert!(!errors.is_empty());
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+}
