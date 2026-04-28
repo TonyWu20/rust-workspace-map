@@ -1,6 +1,6 @@
 use crate::schema::{
-    Error, ErrorEntry, ErrorSeverity, FileInfo, ImplInfo, ImplItem, ImplItemKind, Import,
-    ItemAttrs, ItemKind, PublicItem, ReExport, Result, SubmoduleDecl,
+    ErrorEntry, ErrorSeverity, FileInfo, ImplInfo, ImplItem, ImplItemKind, Import,
+    ItemAttrs, ItemKind, PublicItem, ReExport, SubmoduleDecl,
 };
 use std::path::Path;
 
@@ -31,6 +31,7 @@ pub struct SynParseError {
 /// On parse failure, returns the original file content and a
 /// `SynParseError` alongside an empty `FileInfo`. Callers use the
 /// error to construct an `ErrorEntry`.
+#[must_use]
 pub fn parse_file(path: &Path) -> ParsedFile {
     let content = match std::fs::read_to_string(path) {
         Ok(c) => c,
@@ -303,7 +304,7 @@ fn vis_to_string(vis: &syn::Visibility) -> String {
             if path.is_empty() {
                 "pub(restricted)".to_string()
             } else {
-                format!("pub({})", path)
+                format!("pub({path})")
             }
         }
         syn::Visibility::Inherited => "private".to_string(),
@@ -380,11 +381,11 @@ fn type_to_string(ty: &syn::Type) -> String {
         syn::Type::BareFn(_) => "fn(...)".to_string(),
         syn::Type::Never(_) => "!".to_string(),
         syn::Type::TraitObject(to) => {
-            let bounds: Vec<String> = to.bounds.iter().map(|b| quote_bound(b)).collect();
+            let bounds: Vec<String> = to.bounds.iter().map(quote_bound).collect();
             bounds.join(" + ")
         }
         syn::Type::ImplTrait(ti) => {
-            let bounds: Vec<String> = ti.bounds.iter().map(|b| quote_bound(b)).collect();
+            let bounds: Vec<String> = ti.bounds.iter().map(quote_bound).collect();
             format!("impl {}", bounds.join(" + "))
         }
         syn::Type::Paren(tp) => format!("({})", type_to_string(&tp.elem)),
@@ -468,14 +469,12 @@ fn extract_attrs(attrs: &[syn::Attribute]) -> ItemAttrs {
                     .collect();
                 derive.extend(derives);
             }
-        } else if attr.path().is_ident("doc") {
-            if let syn::Meta::NameValue(nv) = &attr.meta {
-                if let syn::Expr::Lit(el) = &nv.value {
-                    if let syn::Lit::Str(ls) = &el.lit {
-                        doc.push(ls.value());
-                    }
-                }
-            }
+        } else if attr.path().is_ident("doc")
+            && let syn::Meta::NameValue(nv) = &attr.meta
+            && let syn::Expr::Lit(el) = &nv.value
+            && let syn::Lit::Str(ls) = &el.lit
+        {
+            doc.push(ls.value());
         }
     }
 
@@ -590,14 +589,14 @@ fn flatten_use_tree(tree: &syn::UseTree, prefix: &str, line: usize) -> Vec<Impor
             let path = if prefix.is_empty() {
                 "*".to_string()
             } else {
-                format!("{}::*", prefix)
+                format!("{prefix}::*")
             };
             vec![Import { path, line }]
         }
         syn::UseTree::Group(g) => g
             .items
             .iter()
-            .flat_map(|t| flatten_use_tree(t, prefix.clone(), line))
+            .flat_map(|t| flatten_use_tree(t, prefix, line))
             .collect(),
     }
 }
@@ -617,15 +616,25 @@ fn extract_re_exports_from_tree(
             extract_re_exports_from_tree(&p.tree, new_import, line)
         }
         syn::UseTree::Name(n) => {
+            let full_path = if import_path.is_empty() {
+                n.ident.to_string()
+            } else {
+                format!("{}::{}", import_path, n.ident)
+            };
             vec![ReExport {
-                import_path,
+                import_path: full_path,
                 export_path: n.ident.to_string(),
                 line,
             }]
         }
         syn::UseTree::Rename(r) => {
+            let full_path = if import_path.is_empty() {
+                format!("{} as {}", r.ident, r.rename)
+            } else {
+                format!("{}::{} as {}", import_path, r.ident, r.rename)
+            };
             vec![ReExport {
-                import_path,
+                import_path: full_path,
                 export_path: r.rename.to_string(),
                 line,
             }]
@@ -650,11 +659,13 @@ fn extract_re_exports_from_tree(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::schema::{Import, ReExport, SubmoduleDecl};
     use std::path::PathBuf;
 
     fn parse_source(src: &str) -> ParsedFile {
-        let tmp = std::env::temp_dir().join("parse_test.rs");
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+        let id = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let tmp = std::env::temp_dir().join(format!("parse_test_{id}.rs"));
         std::fs::write(&tmp, src).unwrap();
         let result = parse_file(&tmp);
         std::fs::remove_file(&tmp).ok();

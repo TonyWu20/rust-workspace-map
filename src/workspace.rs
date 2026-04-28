@@ -123,6 +123,12 @@ mod tests {
         let src = dir.join("src");
         std::fs::create_dir_all(&src).unwrap();
         std::fs::write(src.join("lib.rs"), "").unwrap();
+        let mut f = std::fs::File::create(dir.join("Cargo.toml")).unwrap();
+        use std::io::Write;
+        writeln!(f, "[package]").unwrap();
+        writeln!(f, "name = \"{}\"", dir.file_name().unwrap().to_string_lossy()).unwrap();
+        writeln!(f, "version = \"0.1.0\"").unwrap();
+        writeln!(f, "edition = \"2021\"").unwrap();
     }
 
     #[test]
@@ -173,9 +179,9 @@ exclude = ["b"]
         setup_crate(tmp.path().join("c").as_path());
         let members = enumerate_members(tmp.path()).unwrap();
         let names: Vec<_> = members.iter().map(|p| p.file_name().unwrap().to_string_lossy()).collect();
-        assert!(names.contains(&"a".as_ref()));
-        assert!(!names.contains(&"b".as_ref()));
-        assert!(names.contains(&"c".as_ref()));
+        assert!(names.iter().any(|n| *n == "a"));
+        assert!(!names.iter().any(|n| *n == "b"));
+        assert!(names.iter().any(|n| *n == "c"));
     }
 
     #[test]
@@ -200,6 +206,7 @@ exclude = ["b"]
 }
 /// Returns `(path, CrateType)` pairs — one for `src/lib.rs` (Lib),
 /// one for `src/main.rs` (Bin), or empty if neither exists.
+#[must_use]
 pub fn resolve_crate_roots(crate_dir: &Path) -> Vec<(PathBuf, CrateType)> {
     let mut roots = Vec::new();
     let lib_rs = crate_dir.join("src").join("lib.rs");

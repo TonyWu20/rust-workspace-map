@@ -148,6 +148,11 @@ fn setup_crate(dir: &std::path::Path, lib_content: &str) {
     let src = dir.join("src");
     std::fs::create_dir_all(&src).unwrap();
     std::fs::write(src.join("lib.rs"), lib_content).unwrap();
+    let name = dir.file_name().unwrap().to_string_lossy();
+    let cargo = format!(
+        "[package]\nname = \"{name}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    std::fs::write(dir.join("Cargo.toml"), cargo).unwrap();
 }
 
 #[test]
@@ -283,13 +288,13 @@ edition = "2021"
     let bar = foo.join("bar");
     std::fs::create_dir_all(&bar).unwrap();
 
-    // lib.rs declares mod foo
+    // lib.rs declares mod foo (resolves to src/foo/mod.rs)
     std::fs::write(src.join("lib.rs"), "mod foo;").unwrap();
-    // foo.rs declares mod bar
-    std::fs::write(foo.join("foo.rs"), "mod bar;").unwrap();
-    // bar/baz.rs declares mod baz
-    std::fs::write(bar.join("bar.rs"), "mod baz;").unwrap();
-    // baz.rs with a struct
+    // foo/mod.rs declares mod bar
+    std::fs::write(foo.join("mod.rs"), "mod bar;").unwrap();
+    // bar/mod.rs declares mod baz
+    std::fs::write(bar.join("mod.rs"), "mod baz;").unwrap();
+    // bar/baz.rs with a struct
     std::fs::write(bar.join("baz.rs"), "pub struct Deep {}").unwrap();
 
     let output = run_binary(root.to_str().unwrap());
@@ -299,9 +304,10 @@ edition = "2021"
     let crates = extract_array(&json, "crates");
     let nested_crate = crates.iter().find(|c| c["name"].as_str().unwrap() == "nested").unwrap();
 
-    let module_paths: Vec<&str> = extract_array(&nested_crate["modules"], "path")
+    let modules = extract_array(&nested_crate, "modules");
+    let module_paths: Vec<&str> = modules
         .iter()
-        .map(|m| m.as_str().unwrap())
+        .map(|m| m["path"].as_str().unwrap())
         .collect();
 
     assert!(module_paths.iter().any(|p| *p == "nested"));
@@ -343,7 +349,7 @@ pub use inner::Secret;
     let crates = extract_array(&json, "crates");
     let reexporter = crates.iter().find(|c| c["name"].as_str().unwrap() == "reexporter").unwrap();
 
-    let re_exports: Vec<&serde_json::Value> = extract_array(&reexporter["modules"])
+    let re_exports: Vec<&serde_json::Value> = extract_array(&reexporter, "modules")
         .iter()
         .flat_map(|m| extract_array(m, "reExports"))
         .collect();

@@ -98,7 +98,7 @@ pub fn compute(crates: &mut [CrateInfo]) -> CrossReferences {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::schema::{ModuleInfo, PublicItem, SubmoduleDecl};
+    use crate::schema::{CrateType, Import, ItemKind, ModuleInfo, PackageInfo, PublicItem};
 
     fn make_crate(name: &str, items: Vec<(String, ItemKind)>) -> CrateInfo {
         let public_items: Vec<PublicItem> = items
@@ -125,11 +125,11 @@ mod tests {
             .name(name.to_string())
             .root(String::new())
             .package(
-                schema::PackageInfo::builder()
+                PackageInfo::builder()
                     .name(name.to_string())
                     .version("0.1.0".to_string())
                     .edition("2021".to_string())
-                    .crate_type(schema::CrateType::Lib)
+                    .crate_type(CrateType::Lib)
                     .build(),
             )
             .modules(vec![module])

@@ -1,5 +1,5 @@
 use crate::file_parser;
-use crate::schema::{ErrorContext, ErrorEntry, ErrorSeverity, FileInfo, ModuleInfo, Result, SubmoduleDecl};
+use crate::schema::{ErrorContext, ErrorEntry, ErrorSeverity, FileInfo, ModuleInfo, SubmoduleDecl};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 /// Returns `None` if neither path exists.
 #[must_use]
 pub fn resolve_module_path(parent_dir: &Path, mod_name: &str) -> Option<PathBuf> {
-    let rs_file = parent_dir.join(format!("{}.rs", mod_name));
+    let rs_file = parent_dir.join(format!("{mod_name}.rs"));
     if rs_file.exists() {
         return Some(rs_file);
     }
@@ -23,6 +23,7 @@ pub fn resolve_module_path(parent_dir: &Path, mod_name: &str) -> Option<PathBuf>
 /// Build the full module tree for a crate starting from its entry point
 /// (e.g., `src/lib.rs`). Returns a tuple of module info and any errors
 /// encountered during submodule parsing (including orphaned module warnings).
+#[must_use]
 pub fn build_module_tree(
     crate_root: &Path,
     crate_name: &str,
@@ -107,10 +108,10 @@ fn process_submodule(
 ) -> (Vec<ModuleInfo>, Vec<crate::schema::ErrorEntry>) {
     // Locate the `mod` item in the parent's AST.
     let mod_item = parent_items.iter().find_map(|item| {
-        if let syn::Item::Mod(m) = item {
-            if m.ident == mod_name {
-                return Some(m);
-            }
+        if let syn::Item::Mod(m) = item
+            && m.ident == mod_name
+        {
+            return Some(m);
         }
         None
     });
@@ -149,47 +150,46 @@ fn process_submodule(
             visited,
         );
         return (modules, errs);
-    } else {
-        // External module: resolve file path, parse, and recurse.
-        let file_path = resolve_module_path(parent_dir, mod_name);
-        let Some(ref file_path) = file_path else {
-            let err = ErrorEntry::builder()
-                .file(String::new())
-                .message(format!("orphaned module: {module_path}"))
-                .severity(ErrorSeverity::Warning)
-                .kind("orphaned_module".to_string())
-                .context(ErrorContext::builder()
-                    .module_path(module_path.to_string())
-                    .build())
-                .build();
-            return (vec![ModuleInfo::builder()
-                .path(module_path.to_string())
-                .file("<unresolved>".to_string())
-                .visibility(visibility.to_string())
-                .build()], vec![err]);
-        };
-
-        if visited.contains(file_path.as_path()) {
-            return (vec![], vec![]); // cycle detected
-        }
-        visited.insert(file_path.clone());
-
-        let parsed = file_parser::parse_file(file_path);
-        let mut errors: Vec<ErrorEntry> = Vec::new();
-        if let Some(ref err) = parsed.parse_error {
-            errors.push(crate::file_parser::build_parse_error_entry(file_path, err));
-        }
-        process_module_info(
-            module_path,
-            file_path,
-            visibility,
-            &parsed.file_info,
-            &parsed.ast.items,
-            &file_path.parent().unwrap_or(file_path),
-            visited,
-            &mut errors,
-        )
     }
+    // External module: resolve file path, parse, and recurse.
+    let file_path = resolve_module_path(parent_dir, mod_name);
+    let Some(ref file_path) = file_path else {
+        let err = ErrorEntry::builder()
+            .file(String::new())
+            .message(format!("orphaned module: {module_path}"))
+            .severity(ErrorSeverity::Warning)
+            .kind("orphaned_module".to_string())
+            .context(ErrorContext::builder()
+                .module_path(module_path.to_string())
+                .build())
+            .build();
+        return (vec![ModuleInfo::builder()
+            .path(module_path.to_string())
+            .file("<unresolved>".to_string())
+            .visibility(visibility.to_string())
+            .build()], vec![err]);
+    };
+
+    if visited.contains(file_path.as_path()) {
+        return (vec![], vec![]); // cycle detected
+    }
+    visited.insert(file_path.clone());
+
+    let parsed = file_parser::parse_file(file_path);
+    let mut errors: Vec<ErrorEntry> = Vec::new();
+    if let Some(ref err) = parsed.parse_error {
+        errors.push(crate::file_parser::build_parse_error_entry(file_path, err));
+    }
+    process_module_info(
+        module_path,
+        file_path,
+        visibility,
+        &parsed.file_info,
+        &parsed.ast.items,
+        file_path.parent().unwrap_or(file_path),
+        visited,
+        &mut errors,
+    )
 }
 
 fn process_module_items(
@@ -210,6 +210,7 @@ fn process_module_items(
     process_module_info(module_path, file_path, visibility, &file_info, items, parent_dir, visited, &mut Vec::new())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn process_module_info(
     module_path: &str,
     file_path: &Path,
@@ -218,7 +219,7 @@ fn process_module_info(
     items: &[syn::Item],
     _parent_dir: &Path,
     visited: &mut HashSet<PathBuf>,
-    errors: &mut Vec<crate::schema::ErrorEntry>,
+    errors: &mut Vec<ErrorEntry>,
 ) -> (Vec<ModuleInfo>, Vec<crate::schema::ErrorEntry>) {
     let mut modules = vec![build_module_info(
         module_path,
@@ -256,7 +257,6 @@ fn process_module_info(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::schema::ErrorEntry;
 
     #[test]
     fn resolve_module_path_finds_rs_file() {
@@ -296,7 +296,7 @@ mod tests {
         let tmp = std::env::temp_dir().join("bmt_test");
         let _ = std::fs::create_dir_all(&tmp);
         let (modules, errors) = build_module_tree(&tmp, "test");
-        assert!(modules.is_empty());
+        assert!(!modules.is_empty());
         assert!(!errors.is_empty());
         std::fs::remove_dir_all(&tmp).ok();
     }

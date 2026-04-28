@@ -4,6 +4,10 @@ use std::path::Path;
 /// Parse a crate's `Cargo.toml` and return package metadata and dependency lists.
 /// The returned `PackageInfo.crate_type` is set to `Lib` by default; the caller
 /// overrides it based on `workspace::resolve_crate_roots`.
+///
+/// # Errors
+///
+/// Returns an error if the file cannot be read or parsed.
 pub fn parse_cargo_toml(path: &Path) -> Result<(PackageInfo, DepInfo)> {
     let content = std::fs::read_to_string(path).map_err(|source| Error::FileRead {
         path: path.to_path_buf(),

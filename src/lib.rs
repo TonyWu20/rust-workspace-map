@@ -30,13 +30,14 @@ use std::path::Path;
 /// Returns an error if the workspace root cannot be found, the workspace
 /// Cargo.toml is missing a `[workspace]` section, member crates cannot be
 /// parsed, or the JSON output cannot be written.
+#[allow(clippy::too_many_lines)]
 pub fn run(config: &Config) -> anyhow::Result<()> {
     let workspace_root = workspace::find_workspace_root(&config.workspace_path)?;
     let member_dirs = workspace::enumerate_members(&workspace_root)?;
 
     let mut crate_errors: Vec<ErrorEntry> = Vec::new();
 
-    let results: Vec<(CrateInfo, Vec<ErrorEntry>)> = member_dirs
+    let results: Vec<(Option<CrateInfo>, Vec<ErrorEntry>)> = member_dirs
         .par_iter()
         .map(|dir| {
             let cargo_toml = dir.join("Cargo.toml");
@@ -79,7 +80,7 @@ pub fn run(config: &Config) -> anyhow::Result<()> {
             let mut modules: Vec<ModuleInfo> = Vec::new();
             let mut collected_errors = Vec::new();
             for (root, _ty) in &roots {
-                let (m, e) = module_tree::build_module_tree(&root, &pkg_name);
+                let (m, e) = module_tree::build_module_tree(root, &pkg_name);
                 modules.extend(m);
                 collected_errors.extend(e);
             }
