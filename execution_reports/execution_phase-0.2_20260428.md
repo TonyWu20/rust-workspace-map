@@ -138,3 +138,40 @@
         |                |
     ```
 
+### TASK-6: Update workspace.rs enumerate_members to return MissingWorkspaceSection error
+- **Status**: ✗ Failed
+- **Validation output**:
+  - `cargo check -p rust-workspace-map`: FAILED (exit 101)
+    ```
+    workspace::enumerate_members(&workspace_root)?;
+         |                         ---------------------------------------------- this expression has type `Vec<PathBuf>`
+    ...
+      43 |           .par_iter()
+         |            ---------- `ParallelIterator::Item` is `&PathBuf` here
+      44 |           .map(|dir| {
+         |  __________^
+      45 | |             let cargo_toml = dir.join("Cargo.toml");
+      46 | |             let mut crate_errors = Vec::new();
+    ...    |
+     119 | |             (Some(crate_info), crate_errors)
+     120 | |         })
+         | |__________^ `ParallelIterator::Item` changed to `(Option<CrateInfo>, Vec<ErrorEntry>)` here
+    note: required by a bound in `rayon::iter::ParallelIterator::collect`
+        --> /Users/tony/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rayon-1.12.0/src/iter/mod.rs:2056:12
+         |
+    2054 |     fn collect<C>(self) -> C
+         |        ------- required by a bound in this associated function
+    2055 |     where
+    2056 |         C: FromParallelIterator<Self::Item>,
+         |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `ParallelIterator::collect`
+         = note: the full name for the type has been written to '/Users/tony/programming/rust-workspace-map/target/debug/deps/rust_workspace_map-ca1f86303c4a42a1.long-type-8545240589136472689.txt'
+         = note: consider using `--verbose` to print the full type name to the console
+    
+    error[E0308]: mismatched types
+       --> src/lib.rs:126:16
+        |
+    126 |         if let Some(ci) = info {
+        |                ^^^^^^^^   ---- this expression has type `CrateInfo`
+        |                |
+    ```
+
