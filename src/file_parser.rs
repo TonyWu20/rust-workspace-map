@@ -1,43 +1,98 @@
 use crate::schema::{
-    Error, FileInfo, ImplInfo, ImplItem, ImplItemKind, Import, ItemAttrs, ItemKind, PublicItem,
-    ReExport, Result, SubmoduleDecl,
+    Error, ErrorEntry, ErrorSeverity, FileInfo, ImplInfo, ImplItem, ImplItemKind, Import,
+    ItemAttrs, ItemKind, PublicItem, ReExport, Result, SubmoduleDecl,
 };
 use std::path::Path;
 
+// ── Internal parse result types ────────────────────────────────────────
+
+/// Result of parsing a Rust source file.
+///
+/// Unlike `Result<T, Error>`, this type always succeeds — parse
+/// failures are reported as data, not as errors, so the caller
+/// can continue processing other files. The caller constructs
+/// `ErrorEntry` values from `SynParseError` when needed.
+pub struct ParsedFile {
+    pub ast: syn::File,
+    pub file_info: FileInfo,
+    pub parse_error: Option<SynParseError>,
+}
+
+/// Structured information about a parse failure.
+pub struct SynParseError {
+    pub message: String,
+    pub line: usize,
+}
+
 // ── parse_file ──────────────────────────────────────────────────────────
 
-/// Read and parse a Rust source file. Returns the raw `syn::File` AST (needed
-/// by `module_tree` for inline module item extraction) and the extracted
-/// `FileInfo`. On parse failure, warns to stderr and returns empty results.
-pub fn parse_file(path: &Path) -> Result<(syn::File, FileInfo)> {
-    let content = std::fs::read_to_string(path).map_err(|source| Error::FileRead {
-        path: path.to_path_buf(),
-        source,
-    })?;
-
-    let file = match syn::parse_file(&content) {
-        Ok(f) => f,
-        Err(e) => {
-            eprintln!("warning: failed to parse {}: {}", path.display(), e);
-            let empty = syn::File {
-                shebang: None,
-                attrs: vec![],
-                items: vec![],
+/// Read and parse a Rust source file.
+///
+/// On parse failure, returns the original file content and a
+/// `SynParseError` alongside an empty `FileInfo`. Callers use the
+/// error to construct an `ErrorEntry`.
+pub fn parse_file(path: &Path) -> ParsedFile {
+    let content = match std::fs::read_to_string(path) {
+        Ok(c) => c,
+        Err(source) => {
+            let err = SynParseError {
+                message: source.to_string(),
+                line: 0,
             };
-            let info = FileInfo::default();
-            return Ok((empty, info));
+            return ParsedFile {
+                ast: syn::File {
+                    shebang: None,
+                    attrs: vec![],
+                    items: vec![],
+                },
+                file_info: FileInfo::default(),
+                parse_error: Some(err),
+            };
         }
     };
 
-    let info = FileInfo {
-        public_items: extract_public_items(&file.items),
-        imports: extract_imports(&file.items),
-        re_exports: extract_re_exports(&file.items),
-        submodules: extract_submodules(&file.items),
-        impls: extract_impls(&file.items),
-    };
+    match syn::parse_file(&content) {
+        Ok(file) => {
+            let file_info = FileInfo {
+                public_items: extract_public_items(&file.items),
+                imports: extract_imports(&file.items),
+                re_exports: extract_re_exports(&file.items),
+                submodules: extract_submodules(&file.items),
+                impls: extract_impls(&file.items),
+            };
+            ParsedFile {
+                ast: file,
+                file_info,
+                parse_error: None,
+            }
+        },
+        Err(e) => {
+            let line = e.span().start().line;
+            let err = SynParseError {
+                message: e.to_string(),
+                line,
+            };
+            ParsedFile {
+                ast: syn::File {
+                    shebang: None,
+                    attrs: vec![],
+                    items: vec![],
+                },
+                file_info: FileInfo::default(),
+                parse_error: Some(err),
+            }
+        }
+    }
+}
 
-    Ok((file, info))
+pub(crate) fn build_parse_error_entry(path: &Path, err: &SynParseError) -> ErrorEntry {
+    ErrorEntry::builder()
+        .file(path.to_string_lossy().to_string())
+        .line(err.line)
+        .message(err.message.clone())
+        .severity(ErrorSeverity::Error)
+        .kind("syn_parse_error".to_string())
+        .build()
 }
 
 // ── extract_public_items ────────────────────────────────────────────────
