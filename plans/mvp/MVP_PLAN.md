@@ -35,6 +35,32 @@ This is the fundamental difference from the hierarchical `crates → modules →
 
 ---
 
+## Coding style
+
+### Builder pattern
+All new structs (`SymbolEntry`, `FileEntry`) use `#[derive(bon::Builder)]`, consistent with the existing codebase idiom.
+
+### Newtype pattern
+Two newtypes wrap the BTreeMap key strings to prevent passing the wrong key kind at compile time:
+
+```rust
+pub struct CanonicalPath(String);        // "crate::module::Name" — key for symbols, name_index values, cross_references.types
+pub struct WorkspaceRelativePath(String); // "core/src/task.rs"   — key for files
+```
+
+Each implements `Display`, `AsRef<str>`, `From<String>`, `PartialOrd/Ord`, `PartialEq/Eq`, `Hash`, `Clone`, and serde `Serialize`/`Deserialize` (transparent). No other pass-through methods.
+
+### Functional style — iterators over for-loops
+New code in `indexes.rs`, `validate.rs`, and `lookup.rs` uses iterator pipelines (`flat_map`, `filter_map`, `fold`, `collect`) rather than `mut` accumulator loops. Existing code in `module_tree.rs` and `lib.rs` is touched only where the bug fixes require it — no opportunistic refactoring.
+
+### `mem::take` for the O(n²) error-vec fix
+The `errors.clone()` at `module_tree.rs:252` is replaced by passing `&mut Vec<ErrorEntry>` down the recursion and using `extend` in place, eliminating the per-level clone.
+
+### `Option` as iterator
+`Option<T>` fields (e.g. `parent_module_file`) are consumed via `.into_iter()` / `.extend(opt)` / `.chain(opt.iter())` in pipeline contexts rather than `if let Some` unwrapping.
+
+---
+
 ## Architectural commitments (locked)
 
 ### KISS faithfulness — very faithful
