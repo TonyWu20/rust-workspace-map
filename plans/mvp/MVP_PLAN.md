@@ -68,7 +68,9 @@ rust-workspace-map index  [PATH] [-o FILE] [--validate]        # --validate runs
 rust-workspace-map lookup [PATH] (--symbol NAME | --file PATH)
 ```
 
-### Schema additions (additive only — no removals from existing schema)
+### Schema additions
+
+Field additions are additive (no struct fields removed). The `cross_references.types` map key format changes from short-name to fully-qualified path — this is a **breaking change** to the JSON output and is intentional (v0.2.0 breaking-change window, same commit as the `index` subcommand mandate).
 
 Two principles drive the shape:
 
@@ -154,7 +156,7 @@ Each finding becomes an `ErrorEntry { severity: Warning, kind: DiagnosticKind::O
 ### `lookup` semantics
 
 - `--symbol Task` → resolves through `name_index["Task"]`; if it points to one canonical path, emits the matching `SymbolEntry`. If many, emits the list of canonical paths plus disambiguation hints. Exit `0` on found, `1` on not-found.
-- `--file core/src/task.rs` → looks up `FileEntry` and joins it back to the matching `ModuleInfo` (so the response carries `module_path`, `parent_module_file`, `is_crate_root`, plus the `ModuleInfo` fields the agent typically needs: `submodules`, `public_items`, `imports`, `re_exports`).
+- `--file core/src/task.rs` → looks up `FileEntry` and scans `crates[].modules[]` for **all** `ModuleInfo` entries whose `.file` matches the requested path. Returns `{ file_entry: FileEntry, primary_module: ModuleInfo, inline_modules: Vec<ModuleInfo> }` where `primary_module` is the entry whose `path` matches `FileEntry.module_path`, and `inline_modules` are all other entries sharing the same `.file` (e.g. `mod tests { … }` in `lib.rs`). The `files` index still excludes inline modules (avoids key collisions); the join step recovers them.
 
 This is the *targeted query* form — the plan-decomposer asks one specific question and gets one specific answer, no JSON-dump-in-context.
 
@@ -184,9 +186,9 @@ The other integrations from the original design (`enrich-plan-gather` Step 2 rep
 | File | Action |
 |---|---|
 | `src/schema.rs` | Add `SymbolEntry` (slim — see schema block), `FileEntry` (slim — three fields), `DiagnosticKind` enum. Extend `WorkspaceMap` with `symbols`, `name_index`, `files` BTreeMap fields. Migrate `ErrorEntry.kind: String → kind: DiagnosticKind` (serde-renamed to keep JSON output stable). **Do not add** `Confidence`, `Warning`, `WarningKind`, `ImportSite`, `ReExportSite`, or `warnings: Vec<Warning>`. |
-| `src/lib.rs` | After existing `cross_refs::compute`, call `indexes::derive_from_crates(&crate_infos)` and pass results to `WorkspaceMap::builder()`. Run validation (if `--validate`) after construction, merging findings into `errors`. Update emit-sites in this file to use the new `DiagnosticKind` variants. Set `WorkspaceInfo.root` to the discovered workspace root path (currently hardcoded to `"."`). |
+| `src/lib.rs` | After existing `cross_refs::compute`, call `indexes::derive_from_crates(&crate_infos)` and pass results to `WorkspaceMap::builder()`. Run validation (if `--validate`) after construction, merging findings into `errors`. Update emit-sites in this file to use the new `DiagnosticKind` variants. Set `WorkspaceInfo.root` to the discovered workspace root path (currently hardcoded to `"."`). Fix dropped-errors bug at lines 132–137: collect `errs` from both `Some` and `None` branches of the crate-results drain loop (currently the `None` branch silently discards errors from failed crates). |
 | `src/main.rs` | Switch to `clap` subcommands: `index` (with `--validate` flag), `lookup`. Bare-path form removed. Each subcommand takes a path. **No `--from-stdin`** — deferred. |
-| `src/lookup.rs` | NEW — pure function over `&WorkspaceMap` implementing `--symbol` and `--file` filters. `--file` joins `FileEntry` to the matching `ModuleInfo`. |
+| `src/lookup.rs` | NEW — pure function over `&WorkspaceMap` implementing `--symbol` and `--file` filters. `--file` looks up `FileEntry` then scans all `ModuleInfo` entries sharing the same `.file`, returning `primary_module` + `inline_modules`. |
 | `src/validate.rs` | Validation is merged into `index --validate`. No separate subcommand. The `OrphanFile` and `DeadReExport` logic lives in `src/validate.rs` as a function called by `lib.rs::run()` when `--validate` is set. |
 | `src/indexes.rs` | NEW — pure function `derive_from_crates(&[CrateInfo]) -> (symbols, name_index, files)` in one pass over `crates[].modules[]`. Called before `WorkspaceMap` builder. No second AST traversal. |
 | `src/module_tree.rs`, `src/file_parser.rs` | Update emit-sites to construct `ErrorEntry` with `kind: DiagnosticKind::OrphanedModule` etc. Fix error-vec cloning at line 252 (O(n²) memory waste) and fragile `unwrap_or` at line 33. |
@@ -263,7 +265,7 @@ In `README.md` of `rust-workspace-map`, add a short "Inspiration" section:
 
 ## Locked decisions (recorded so they don't drift)
 
-- **D1**: `index` mandatory immediately. Bare-path form removed in v0.2.0. No deprecation alias. Call-site sweep is part of the same commit (verification step 2).
+- **D1**: `index` mandatory immediately. Bare-path form removed in v0.2.0. No deprecation alias. Call-site sweep is part of the same commit (verification step 2). The `cross_references.types` re-keying (short-name → fully-qualified path) is also a breaking change and ships in this same commit.
 - **D2**: MVP scope =
   - **subcommands**: `index` (with `--validate` flag), `lookup` (no `--from-stdin`)
   - **schema additions**: slim `SymbolEntry`, slim `FileEntry`, three flat indexes (`symbols`, `name_index`, `files`), `DiagnosticKind` enum (replacing `ErrorEntry.kind: String`), re-key `cross_references.types` from short-name to fully-qualified path
