@@ -1,0 +1,21 @@
+{
+  "plan": "/Users/tony/programming/rust-workspace-map/notes/pr-reviews/phase-0.2/fix-plan.toml",
+  "compiled_at": "2026-04-28T13:21:15.100326+00:00",
+  "tasks": [
+    {
+      "id": "TASK-1",
+      "script": "TASK-1.sh",
+      "runner": "TASK-1.py",
+      "file": "src/lib.rs",
+      "type": "replace",
+      "changes": 1,
+      "description": "Wrap module_tree errors with kind=module_tree_error to align with plan spec",
+      "acceptance": [
+        "cargo check -p rust-workspace-map",
+        "cargo test -p rust-workspace-map",
+        "rg -F '\"module_tree_error\"' src/lib.rs"
+      ]
+    }
+  ],
+  "skipped": []
+}

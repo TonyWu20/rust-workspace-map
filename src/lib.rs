@@ -84,7 +84,16 @@ pub fn run(config: &Config) -> anyhow::Result<()> {
                 modules.extend(m);
                 collected_errors.extend(e);
             }
-            crate_errors.extend(collected_errors);
+            for err in collected_errors {
+                if err.kind.is_empty() {
+                    crate_errors.push(ErrorEntry {
+                        kind: "module_tree_error".to_string(),
+                        ..err
+                    });
+                } else {
+                    crate_errors.push(err);
+                }
+            }
 
             // Relativize all paths to the workspace root.
             for m in &mut modules {

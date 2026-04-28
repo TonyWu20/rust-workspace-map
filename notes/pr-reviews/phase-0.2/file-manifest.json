@@ -1,0 +1,791 @@
+{
+  "branch": "phase-0.2",
+  "base": "main",
+  "commits": [
+    {
+      "hash": "bbc0490",
+      "message": "fix(phase-0.2): fix integration test extraction bug and post-impl cleanup"
+    },
+    {
+      "hash": "d69a51f",
+      "message": "feat(phase-0.2): TASK-10: Expand integration tests from 3 to 10 covering error cases, workspace patterns, and output"
+    },
+    {
+      "hash": "2c73842",
+      "message": "feat(phase-0.2): TASK-9: Add unit tests for file_parser, module_tree, workspace, cargo_info, cross_refs, and render"
+    },
+    {
+      "hash": "06a3515",
+      "message": "feat(phase-0.2): TASK-8: Remove all crate-level clippy allow attributes and fix individual lint violations"
+    },
+    {
+      "hash": "bd49767",
+      "message": "feat(phase-0.2): TASK-6: Update workspace.rs enumerate_members to return MissingWorkspaceSection error"
+    },
+    {
+      "hash": "8aa8507",
+      "message": "feat(phase-0.2): TASK-7: Refactor lib.rs run(): parallel error collection, error entry construction, remove unwrap_or_default"
+    },
+    {
+      "hash": "a44c48e",
+      "message": "feat(phase-0.2): TASK-5: Refactor module_tree.rs: fix path fallbacks, add error collection, change build_module_tree return type"
+    },
+    {
+      "hash": "3abd1f3",
+      "message": "feat(phase-0.2): TASK-4: Change parse_file to return ParsedFile with optional parse errors instead of Result"
+    },
+    {
+      "hash": "a13f330",
+      "message": "feat(phase-0.2): TASK-3: Expand ErrorEntry struct with severity, kind, context, and cause fields"
+    },
+    {
+      "hash": "99dbae6",
+      "message": "feat(phase-0.2): TASK-2: Add MissingWorkspaceSection variant to Error enum in schema.rs"
+    },
+    {
+      "hash": "bfe6a41",
+      "message": "plan(phase-0.2): finalize enriched plan after judge review"
+    }
+  ],
+  "files": [
+    {
+      "path": ".claude/hooks/current_task_TASK-PREP.json",
+      "lines_added": 24,
+      "lines_removed": 0,
+      "added_functions": [],
+      "removed_functions": [],
+      "modified_functions": [],
+      "added_imports": [],
+      "has_trailing_newline": true
+    },
+    {
+      "path": "Cargo.lock",
+      "lines_added": 286,
+      "lines_removed": 1,
+      "added_functions": [],
+      "removed_functions": [],
+      "modified_functions": [],
+      "added_imports": [],
+      "has_trailing_newline": true
+    },
+    {
+      "path": "Cargo.toml",
+      "lines_added": 3,
+      "lines_removed": 0,
+      "added_functions": [],
+      "removed_functions": [],
+      "modified_functions": [],
+      "added_imports": [],
+      "has_trailing_newline": true
+    },
+    {
+      "path": "execution_reports/.checkpoint_phase-0.2.json",
+      "lines_added": 18,
+      "lines_removed": 0,
+      "added_functions": [],
+      "removed_functions": [],
+      "modified_functions": [],
+      "added_imports": [],
+      "has_trailing_newline": true
+    },
+    {
+      "path": "execution_reports/execution_phase-0.2_20260428.md",
+      "lines_added": 288,
+      "lines_removed": 0,
+      "added_functions": [],
+      "removed_functions": [],
+      "modified_functions": [],
+      "added_imports": [],
+      "has_trailing_newline": true
+    },
+    {
+      "path": "notes/plan-enrichment/phase-0.2/codebase-state.md",
+      "lines_added": 328,
+      "lines_removed": 0,
+      "added_functions": [
+        "Error",
+        "Result",
+        "Config",
+        "ErrorEntry",
+        "find_workspace_root",
+        "enumerate_members",
+        "resolve_crate_roots",
+        "parse_cargo_toml",
+        "parse_file",
+        "extract_public_items",
+        "extract_imports",
+        "extract_re_exports",
+        "extract_submodules",
+        "extract_impls",
+        "resolve_module_path",
+        "build_module_tree",
+        "compute",
+        "PublicItem",
+        "kind_to_string",
+        "render_json",
+        "render_to_writer",
+        "Cli",
+        "main",
+        "run",
+        "relativize_path",
+        "test_sample_workspace_output",
+        "test_deterministic_output",
+        "test_missing_path_exits_nonzero"
+      ],
+      "removed_functions": [],
+      "modified_functions": [],
+      "added_imports": [],
+      "has_trailing_newline": true
+    },
+    {
+      "path": "notes/plan-enrichment/phase-0.2/deferred-and-patterns.md",
+      "lines_added": 11,
+      "lines_removed": 0,
+      "added_functions": [],
+      "removed_functions": [],
+      "modified_functions": [],
+      "added_imports": [],
+      "has_trailing_newline": true
+    },
+    {
+      "path": "notes/plan-enrichment/phase-0.2/draft-elaboration.md",
+      "lines_added": 563,
+      "lines_removed": 0,
+      "added_functions": [
+        "ErrorSeverity",
+        "ErrorContext",
+        "ErrorEntry",
+        "parse_file",
+        "ParsedFile",
+        "SynParseError",
+        "build_parse_error_entry",
+        "build_module_tree"
+      ],
+      "removed_functions": [],
+      "modified_functions": [],
+      "added_imports": [],
+      "has_trailing_newline": true
+    },
+    {
+      "path": "notes/plan-enrichment/phase-0.2/gather-summary.md",
+      "lines_added": 27,
+      "lines_removed": 0,
+      "added_functions": [],
+      "removed_functions": [],
+      "modified_functions": [],
+      "added_imports": [],
+      "has_trailing_newline": true
+    },
+    {
+      "path": "notes/plan-enrichment/phase-0.2/plan.approved.toml",
+      "lines_added": 2168,
+      "lines_removed": 0,
+      "added_functions": [
+        "FileInfo",
+        "ErrorSeverity",
+        "ErrorContext",
+        "Result",
+        "ErrorEntry",
+        "parse_file",
+        "ParsedFile",
+        "SynParseError",
+        "build_module_tree",
+        "resolve_module_path",
+        "find_workspace_root",
+        "enumerate_members",
+        "run",
+        "relativize_path",
+        "extract_public_items",
+        "extract_imports",
+        "extract_re_exports",
+        "extract_submodules",
+        "extract_impls",
+        "render_json",
+        "crate",
+        "kind_to_string",
+        "parse_source",
+        "parse_file_returns_ast_for_valid_source",
+        "parse_file_returns_error_for_invalid_source",
+        "parse_file_returns_empty_for_empty_file",
+        "extract_public_items_finds_struct_enum_trait_fn",
+        "extract_public_items_empty_for_no_public_items",
+        "extract_imports_finds_use_statements",
+        "extract_re_exports_finds_pub_use",
+        "extract_re_exports_finds_rename",
+        "extract_submodules_finds_mod_declarations",
+        "extract_submodules_marks_cfg_test",
+        "extract_impls_finds_fn_type_const",
+        "build_parse_error_entry_constructs_error",
+        "resolve_module_path_finds_rs_file",
+        "resolve_module_path_finds_mod_rs",
+        "resolve_module_path_returns_none_for_missing",
+        "build_module_tree_returns_empty_for_nonexistent",
+        "write_cargo_toml",
+        "setup_crate",
+        "find_workspace_root_finds_cargo_toml",
+        "enumerate_members_returns_members",
+        "enumerate_members_returns_err_for_missing_workspace",
+        "enumerate_members_applies_exclude",
+        "resolve_crate_roots_detects_lib",
+        "resolve_crate_roots_detects_bin",
+        "parse_cargo_toml_parses_minimal",
+        "parse_cargo_toml_uses_defaults_for_missing_package",
+        "parse_cargo_toml_distinguishes_deps",
+        "make_crate",
+        "compute_finds_cross_crate_import",
+        "compute_empty_for_no_cross_references",
+        "render_to_writer",
+        "make_minimal_map",
+        "render_json_produces_valid_json",
+        "render_json_skips_empty_errors",
+        "render_to_writer_matches_render_json",
+        "test_missing_path_exits_nonzero",
+        "run_binary",
+        "parse_output",
+        "test_parse_failure_error_entry",
+        "test_missing_workspace_section",
+        "test_glob_member_patterns",
+        "test_workspace_with_exclude",
+        "test_deeply_nested_modules",
+        "test_reexport_chains",
+        "Secret",
+        "test_output_via_flag"
+      ],
+      "removed_functions": [],
+      "modified_functions": [],
+      "added_imports": [
+        "std::path::Path",
+        "rayon::prelude::*",
+        "super::*",
+        "crate::schema::{Import, ReExport, SubmoduleDecl}",
+        "std::path::PathBuf",
+        "crate::schema::ErrorEntry",
+        "std::io::Write",
+        "crate::schema::{ModuleInfo, PublicItem, SubmoduleDecl}"
+      ],
+      "has_trailing_newline": true
+    },
+    {
+      "path": "notes/plan-enrichment/phase-0.2/task-checklist.md",
+      "lines_added": 274,
+      "lines_removed": 0,
+      "added_functions": [],
+      "removed_functions": [],
+      "modified_functions": [],
+      "added_imports": [],
+      "has_trailing_newline": true
+    },
+    {
+      "path": "plans/compiled/TASK-1.py",
+      "lines_added": 44,
+      "lines_removed": 0,
+      "added_functions": [],
+      "removed_functions": [],
+      "modified_functions": [],
+      "added_imports": [],
+      "has_trailing_newline": true
+    },
+    {
+      "path": "plans/compiled/TASK-1.sh",
+      "lines_added": 7,
+      "lines_removed": 0,
+      "added_functions": [],
+      "removed_functions": [],
+      "modified_functions": [],
+      "added_imports": [],
+      "has_trailing_newline": true
+    },
+    {
+      "path": "plans/compiled/TASK-10.py",
+      "lines_added": 44,
+      "lines_removed": 0,
+      "added_functions": [],
+      "removed_functions": [],
+      "modified_functions": [],
+      "added_imports": [],
+      "has_trailing_newline": true
+    },
+    {
+      "path": "plans/compiled/TASK-10.sh",
+      "lines_added": 7,
+      "lines_removed": 0,
+      "added_functions": [],
+      "removed_functions": [],
+      "modified_functions": [],
+      "added_imports": [],
+      "has_trailing_newline": true
+    },
+    {
+      "path": "plans/compiled/TASK-2.py",
+      "lines_added": 44,
+      "lines_removed": 0,
+      "added_functions": [],
+      "removed_functions": [],
+      "modified_functions": [],
+      "added_imports": [],
+      "has_trailing_newline": true
+    },
+    {
+      "path": "plans/compiled/TASK-2.sh",
+      "lines_added": 7,
+      "lines_removed": 0,
+      "added_functions": [],
+      "removed_functions": [],
+      "modified_functions": [],
+      "added_imports": [],
+      "has_trailing_newline": true
+    },
+    {
+      "path": "plans/compiled/TASK-3.py",
+      "lines_added": 44,
+      "lines_removed": 0,
+      "added_functions": [],
+      "removed_functions": [],
+      "modified_functions": [],
+      "added_imports": [],
+      "has_trailing_newline": true
+    },
+    {
+      "path": "plans/compiled/TASK-3.sh",
+      "lines_added": 7,
+      "lines_removed": 0,
+      "added_functions": [],
+      "removed_functions": [],
+      "modified_functions": [],
+      "added_imports": [],
+      "has_trailing_newline": true
+    },
+    {
+      "path": "plans/compiled/TASK-4.py",
+      "lines_added": 44,
+      "lines_removed": 0,
+      "added_functions": [],
+      "removed_functions": [],
+      "modified_functions": [],
+      "added_imports": [],
+      "has_trailing_newline": true
+    },
+    {
+      "path": "plans/compiled/TASK-4.sh",
+      "lines_added": 7,
+      "lines_removed": 0,
+      "added_functions": [],
+      "removed_functions": [],
+      "modified_functions": [],
+      "added_imports": [],
+      "has_trailing_newline": true
+    },
+    {
+      "path": "plans/compiled/TASK-5.py",
+      "lines_added": 44,
+      "lines_removed": 0,
+      "added_functions": [],
+      "removed_functions": [],
+      "modified_functions": [],
+      "added_imports": [],
+      "has_trailing_newline": true
+    },
+    {
+      "path": "plans/compiled/TASK-5.sh",
+      "lines_added": 7,
+      "lines_removed": 0,
+      "added_functions": [],
+      "removed_functions": [],
+      "modified_functions": [],
+      "added_imports": [],
+      "has_trailing_newline": true
+    },
+    {
+      "path": "plans/compiled/TASK-6.py",
+      "lines_added": 44,
+      "lines_removed": 0,
+      "added_functions": [],
+      "removed_functions": [],
+      "modified_functions": [],
+      "added_imports": [],
+      "has_trailing_newline": true
+    },
+    {
+      "path": "plans/compiled/TASK-6.sh",
+      "lines_added": 7,
+      "lines_removed": 0,
+      "added_functions": [],
+      "removed_functions": [],
+      "modified_functions": [],
+      "added_imports": [],
+      "has_trailing_newline": true
+    },
+    {
+      "path": "plans/compiled/TASK-7.py",
+      "lines_added": 44,
+      "lines_removed": 0,
+      "added_functions": [],
+      "removed_functions": [],
+      "modified_functions": [],
+      "added_imports": [],
+      "has_trailing_newline": true
+    },
+    {
+      "path": "plans/compiled/TASK-7.sh",
+      "lines_added": 7,
+      "lines_removed": 0,
+      "added_functions": [],
+      "removed_functions": [],
+      "modified_functions": [],
+      "added_imports": [],
+      "has_trailing_newline": true
+    },
+    {
+      "path": "plans/compiled/TASK-8.py",
+      "lines_added": 44,
+      "lines_removed": 0,
+      "added_functions": [],
+      "removed_functions": [],
+      "modified_functions": [],
+      "added_imports": [],
+      "has_trailing_newline": true
+    },
+    {
+      "path": "plans/compiled/TASK-8.sh",
+      "lines_added": 7,
+      "lines_removed": 0,
+      "added_functions": [],
+      "removed_functions": [],
+      "modified_functions": [],
+      "added_imports": [],
+      "has_trailing_newline": true
+    },
+    {
+      "path": "plans/compiled/TASK-9.py",
+      "lines_added": 44,
+      "lines_removed": 0,
+      "added_functions": [],
+      "removed_functions": [],
+      "modified_functions": [],
+      "added_imports": [],
+      "has_trailing_newline": true
+    },
+    {
+      "path": "plans/compiled/TASK-9.sh",
+      "lines_added": 7,
+      "lines_removed": 0,
+      "added_functions": [],
+      "removed_functions": [],
+      "modified_functions": [],
+      "added_imports": [],
+      "has_trailing_newline": true
+    },
+    {
+      "path": "plans/compiled/TASK-PREP.py",
+      "lines_added": 44,
+      "lines_removed": 0,
+      "added_functions": [],
+      "removed_functions": [],
+      "modified_functions": [],
+      "added_imports": [],
+      "has_trailing_newline": true
+    },
+    {
+      "path": "plans/compiled/TASK-PREP.sh",
+      "lines_added": 7,
+      "lines_removed": 0,
+      "added_functions": [],
+      "removed_functions": [],
+      "modified_functions": [],
+      "added_imports": [],
+      "has_trailing_newline": true
+    },
+    {
+      "path": "plans/compiled/manifest.json",
+      "lines_added": 139,
+      "lines_removed": 0,
+      "added_functions": [],
+      "removed_functions": [],
+      "modified_functions": [],
+      "added_imports": [],
+      "has_trailing_newline": true
+    },
+    {
+      "path": "plans/phase-0.2.toml",
+      "lines_added": 2168,
+      "lines_removed": 0,
+      "added_functions": [
+        "FileInfo",
+        "ErrorSeverity",
+        "ErrorContext",
+        "Result",
+        "ErrorEntry",
+        "parse_file",
+        "ParsedFile",
+        "SynParseError",
+        "build_module_tree",
+        "resolve_module_path",
+        "find_workspace_root",
+        "enumerate_members",
+        "run",
+        "relativize_path",
+        "extract_public_items",
+        "extract_imports",
+        "extract_re_exports",
+        "extract_submodules",
+        "extract_impls",
+        "render_json",
+        "crate",
+        "kind_to_string",
+        "parse_source",
+        "parse_file_returns_ast_for_valid_source",
+        "parse_file_returns_error_for_invalid_source",
+        "parse_file_returns_empty_for_empty_file",
+        "extract_public_items_finds_struct_enum_trait_fn",
+        "extract_public_items_empty_for_no_public_items",
+        "extract_imports_finds_use_statements",
+        "extract_re_exports_finds_pub_use",
+        "extract_re_exports_finds_rename",
+        "extract_submodules_finds_mod_declarations",
+        "extract_submodules_marks_cfg_test",
+        "extract_impls_finds_fn_type_const",
+        "build_parse_error_entry_constructs_error",
+        "resolve_module_path_finds_rs_file",
+        "resolve_module_path_finds_mod_rs",
+        "resolve_module_path_returns_none_for_missing",
+        "build_module_tree_returns_empty_for_nonexistent",
+        "write_cargo_toml",
+        "setup_crate",
+        "find_workspace_root_finds_cargo_toml",
+        "enumerate_members_returns_members",
+        "enumerate_members_returns_err_for_missing_workspace",
+        "enumerate_members_applies_exclude",
+        "resolve_crate_roots_detects_lib",
+        "resolve_crate_roots_detects_bin",
+        "parse_cargo_toml_parses_minimal",
+        "parse_cargo_toml_uses_defaults_for_missing_package",
+        "parse_cargo_toml_distinguishes_deps",
+        "make_crate",
+        "compute_finds_cross_crate_import",
+        "compute_empty_for_no_cross_references",
+        "render_to_writer",
+        "make_minimal_map",
+        "render_json_produces_valid_json",
+        "render_json_skips_empty_errors",
+        "render_to_writer_matches_render_json",
+        "test_missing_path_exits_nonzero",
+        "run_binary",
+        "parse_output",
+        "test_parse_failure_error_entry",
+        "test_missing_workspace_section",
+        "test_glob_member_patterns",
+        "test_workspace_with_exclude",
+        "test_deeply_nested_modules",
+        "test_reexport_chains",
+        "Secret",
+        "test_output_via_flag"
+      ],
+      "removed_functions": [],
+      "modified_functions": [],
+      "added_imports": [
+        "std::path::Path",
+        "rayon::prelude::*",
+        "super::*",
+        "crate::schema::{Import, ReExport, SubmoduleDecl}",
+        "std::path::PathBuf",
+        "crate::schema::ErrorEntry",
+        "std::io::Write",
+        "crate::schema::{ModuleInfo, PublicItem, SubmoduleDecl}"
+      ],
+      "has_trailing_newline": true
+    },
+    {
+      "path": "src/cargo_info.rs",
+      "lines_added": 65,
+      "lines_removed": 0,
+      "added_functions": [
+        "write_cargo_toml",
+        "parse_cargo_toml_parses_minimal",
+        "parse_cargo_toml_uses_defaults_for_missing_package",
+        "parse_cargo_toml_distinguishes_deps"
+      ],
+      "removed_functions": [],
+      "modified_functions": [],
+      "added_imports": [
+        "super::*",
+        "std::io::Write"
+      ],
+      "has_trailing_newline": true
+    },
+    {
+      "path": "src/cross_refs.rs",
+      "lines_added": 82,
+      "lines_removed": 0,
+      "added_functions": [
+        "make_crate",
+        "compute_finds_cross_crate_import",
+        "compute_empty_for_no_cross_references"
+      ],
+      "removed_functions": [],
+      "modified_functions": [],
+      "added_imports": [
+        "super::*",
+        "crate::schema::{CrateType, Import, ItemKind, ModuleInfo, PackageInfo, PublicItem}"
+      ],
+      "has_trailing_newline": true
+    },
+    {
+      "path": "src/file_parser.rs",
+      "lines_added": 255,
+      "lines_removed": 49,
+      "added_functions": [
+        "ParsedFile",
+        "SynParseError",
+        "parse_file",
+        "flatten_use_tree",
+        "parse_source",
+        "COUNTER",
+        "parse_file_returns_ast_for_valid_source",
+        "parse_file_returns_error_for_invalid_source",
+        "parse_file_returns_empty_for_empty_file",
+        "extract_public_items_finds_struct_enum_trait_fn",
+        "extract_public_items_empty_for_no_public_items",
+        "extract_imports_finds_use_statements",
+        "extract_re_exports_finds_pub_use",
+        "extract_re_exports_finds_rename",
+        "extract_submodules_finds_mod_declarations",
+        "extract_submodules_marks_cfg_test",
+        "extract_impls_finds_fn_type_const",
+        "build_parse_error_entry_constructs_error"
+      ],
+      "removed_functions": [
+        "parse_file",
+        "flatten_use_tree"
+      ],
+      "modified_functions": [],
+      "added_imports": [
+        "super::*",
+        "std::path::PathBuf",
+        "std::sync::atomic::{AtomicU64, Ordering}"
+      ],
+      "has_trailing_newline": true
+    },
+    {
+      "path": "src/lib.rs",
+      "lines_added": 56,
+      "lines_removed": 41,
+      "added_functions": [
+        "run"
+      ],
+      "removed_functions": [
+        "run"
+      ],
+      "modified_functions": [],
+      "added_imports": [],
+      "has_trailing_newline": true
+    },
+    {
+      "path": "src/main.rs",
+      "lines_added": 1,
+      "lines_removed": 1,
+      "added_functions": [],
+      "removed_functions": [],
+      "modified_functions": [],
+      "added_imports": [],
+      "has_trailing_newline": true
+    },
+    {
+      "path": "src/module_tree.rs",
+      "lines_added": 146,
+      "lines_removed": 59,
+      "added_functions": [
+        "build_module_tree",
+        "resolve_module_path_finds_rs_file",
+        "resolve_module_path_finds_mod_rs",
+        "resolve_module_path_returns_none_for_missing",
+        "build_module_tree_returns_empty_for_nonexistent"
+      ],
+      "removed_functions": [
+        "build_module_tree"
+      ],
+      "modified_functions": [],
+      "added_imports": [
+        "crate::schema::{ErrorContext, ErrorEntry, ErrorSeverity, FileInfo, ModuleInfo, SubmoduleDecl}",
+        "super::*"
+      ],
+      "has_trailing_newline": true
+    },
+    {
+      "path": "src/render.rs",
+      "lines_added": 78,
+      "lines_removed": 0,
+      "added_functions": [
+        "make_minimal_map",
+        "render_json_produces_valid_json",
+        "render_json_skips_empty_errors",
+        "render_to_writer_matches_render_json"
+      ],
+      "removed_functions": [],
+      "modified_functions": [],
+      "added_imports": [
+        "super::*"
+      ],
+      "has_trailing_newline": true
+    },
+    {
+      "path": "src/schema.rs",
+      "lines_added": 41,
+      "lines_removed": 1,
+      "added_functions": [
+        "ErrorSeverity",
+        "ErrorContext"
+      ],
+      "removed_functions": [],
+      "modified_functions": [],
+      "added_imports": [],
+      "has_trailing_newline": true
+    },
+    {
+      "path": "src/workspace.rs",
+      "lines_added": 120,
+      "lines_removed": 11,
+      "added_functions": [
+        "write_cargo_toml",
+        "setup_crate",
+        "find_workspace_root_finds_cargo_toml",
+        "enumerate_members_returns_members",
+        "enumerate_members_returns_err_for_missing_workspace",
+        "enumerate_members_applies_exclude",
+        "resolve_crate_roots_detects_lib",
+        "resolve_crate_roots_detects_bin"
+      ],
+      "removed_functions": [],
+      "modified_functions": [],
+      "added_imports": [
+        "super::*",
+        "std::io::Write"
+      ],
+      "has_trailing_newline": true
+    },
+    {
+      "path": "tests/integration_test.rs",
+      "lines_added": 265,
+      "lines_removed": 0,
+      "added_functions": [
+        "run_binary",
+        "parse_output",
+        "write_cargo_toml",
+        "setup_crate",
+        "test_parse_failure_error_entry",
+        "test_missing_workspace_section",
+        "test_glob_member_patterns",
+        "test_workspace_with_exclude",
+        "test_deeply_nested_modules",
+        "test_reexport_chains",
+        "Secret",
+        "test_output_via_flag"
+      ],
+      "removed_functions": [],
+      "modified_functions": [],
+      "added_imports": [
+        "std::io::Write"
+      ],
+      "has_trailing_newline": true
+    }
+  ]
+}

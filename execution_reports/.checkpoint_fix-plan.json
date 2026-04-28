@@ -1,0 +1,9 @@
+{
+  "plan": "/Users/tony/programming/rust-workspace-map/notes/pr-reviews/phase-0.2/fix-plan.toml",
+  "base_commit": "db3f5b78c759b6cf1487a0d45cac936956c16150",
+  "completed": [],
+  "failed": [
+    "TASK-1"
+  ],
+  "blocked": []
+}
