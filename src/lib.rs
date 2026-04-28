@@ -22,7 +22,8 @@ pub use schema::Config;
 use anyhow::Context;
 use rayon::prelude::*;
 use schema::{
-    CrateInfo, CrateType, ErrorEntry, ModuleInfo, WorkspaceInfo, WorkspaceMap,
+    CrateInfo, CrateType, ErrorEntry, ErrorSeverity, ModuleInfo, WorkspaceInfo,
+    WorkspaceMap,
 };
 use std::path::Path;
 
@@ -36,32 +37,37 @@ pub fn run(config: Config) -> anyhow::Result<()> {
     let workspace_root = workspace::find_workspace_root(&config.workspace_path)?;
     let member_dirs = workspace::enumerate_members(&workspace_root)?;
 
-    let errors: Vec<ErrorEntry> = Vec::new();
+    let mut crate_errors: Vec<ErrorEntry> = Vec::new();
 
-    let mut crate_infos: Vec<CrateInfo> = member_dirs
+    let results: Vec<(CrateInfo, Vec<ErrorEntry>)> = member_dirs
         .par_iter()
-        .filter_map(|dir| {
+        .map(|dir| {
             let cargo_toml = dir.join("Cargo.toml");
+            let mut crate_errors = Vec::new();
 
             let (pkg, deps) = match cargo_info::parse_cargo_toml(&cargo_toml) {
                 Ok(v) => v,
                 Err(e) => {
-                    eprintln!(
-                        "warning: failed to parse {}: {}",
-                        cargo_toml.display(),
-                        e
-                    );
-                    return None;
+                    crate_errors.push(ErrorEntry::builder()
+                        .file(cargo_toml.to_string_lossy().to_string())
+                        .message(format!("failed to parse Cargo.toml: {e}"))
+                        .severity(ErrorSeverity::Error)
+                        .kind("toml_parse_error".to_string())
+                        .cause(e.to_string())
+                        .build());
+                    return (None, crate_errors);
                 }
             };
 
             let roots = workspace::resolve_crate_roots(dir);
             if roots.is_empty() {
-                eprintln!(
-                    "warning: no crate entry points found in {}",
-                    dir.display()
-                );
-                return None;
+                crate_errors.push(ErrorEntry::builder()
+                    .file(dir.to_string_lossy().to_string())
+                    .message("no crate entry points found".to_string())
+                    .severity(ErrorSeverity::Warning)
+                    .kind("missing_crate_roots".to_string())
+                    .build());
+                return (None, crate_errors);
             }
 
             let crate_type = if roots.iter().any(|(_, t)| *t == CrateType::Lib)
@@ -73,12 +79,14 @@ pub fn run(config: Config) -> anyhow::Result<()> {
             };
 
             let pkg_name = pkg.name.clone();
-            let mut modules: Vec<ModuleInfo> = roots
-                .iter()
-                .flat_map(|(root, _ty)| {
-                    module_tree::build_module_tree(root, &pkg_name).unwrap_or_default()
-                })
-                .collect();
+            let mut modules: Vec<ModuleInfo> = Vec::new();
+            let mut collected_errors = Vec::new();
+            for (root, _ty) in &roots {
+                let (m, e) = module_tree::build_module_tree(&root, &pkg_name);
+                modules.extend(m);
+                collected_errors.extend(e);
+            }
+            crate_errors.extend(collected_errors);
 
             // Relativize all paths to the workspace root.
             for m in &mut modules {
@@ -100,17 +108,26 @@ pub fn run(config: Config) -> anyhow::Result<()> {
                 .crate_type(crate_type)
                 .build();
 
-            Some(
-                CrateInfo::builder()
-                    .name(pkg_name)
-                    .root(crate_root)
-                    .package(rebuilt_pkg)
-                    .modules(modules)
-                    .deps(deps)
-                    .build(),
-            )
+            let crate_info = CrateInfo::builder()
+                .name(pkg_name)
+                .root(crate_root)
+                .package(rebuilt_pkg)
+                .modules(modules)
+                .deps(deps)
+                .build();
+
+            (Some(crate_info), crate_errors)
         })
         .collect();
+
+    let mut crate_infos: Vec<CrateInfo> = Vec::new();
+
+    for (info, errs) in results {
+        if let Some(ci) = info {
+            crate_errors.extend(errs);
+            crate_infos.push(ci);
+        }
+    }
 
     // Deterministic sort by crate name.
     crate_infos.sort_by(|a, b| a.name.cmp(&b.name));
@@ -131,7 +148,7 @@ pub fn run(config: Config) -> anyhow::Result<()> {
         .workspace(workspace_info)
         .crates(crate_infos)
         .cross_references(cross_refs)
-        .errors(errors)
+        .errors(crate_errors)
         .workspace_root(workspace_root.clone())
         .build();
 

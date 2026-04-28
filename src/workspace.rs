@@ -3,6 +3,11 @@ use std::path::{Path, PathBuf};
 
 /// Walk up the directory tree from `start_path` to find a `Cargo.toml`
 /// containing a `[workspace]` section. Returns the directory containing it.
+///
+/// # Errors
+///
+/// Returns `Error::WorkspaceRootNotFound` if no `Cargo.toml` with a
+/// `[workspace]` section is found in any ancestor directory.
 pub fn find_workspace_root(start_path: &Path) -> Result<PathBuf> {
     for ancestor in start_path.ancestors() {
         let cargo_toml = ancestor.join("Cargo.toml");
@@ -22,6 +27,11 @@ pub fn find_workspace_root(start_path: &Path) -> Result<PathBuf> {
 /// Parse the workspace `Cargo.toml`, resolve member paths (including glob
 /// patterns), apply `exclude` list, and return absolute paths to each member
 /// crate directory.
+///
+/// # Errors
+///
+/// Returns `Error::MissingWorkspaceSection` if the `Cargo.toml` lacks a
+/// `[workspace]` section entirely.
 pub fn enumerate_members(root: &Path) -> Result<Vec<PathBuf>> {
     let cargo_toml_path = root.join("Cargo.toml");
     let content = std::fs::read_to_string(&cargo_toml_path).map_err(|source| Error::FileRead {
@@ -34,16 +44,18 @@ pub fn enumerate_members(root: &Path) -> Result<Vec<PathBuf>> {
         source,
     })?;
 
-    let members: Vec<String> = parsed
-        .get("workspace")
-        .and_then(|w| w.get("members"))
-        .and_then(|m| m.as_array())
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|v| v.as_str().map(String::from))
-                .collect()
-        })
-        .unwrap_or_default();
+    let members: Vec<String> = match parsed.get("workspace") {
+        None => return Err(Error::MissingWorkspaceSection),
+        Some(workspace) => workspace
+            .get("members")
+            .and_then(|m| m.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default(),
+    };
 
     let exclude: Vec<String> = parsed
         .get("workspace")
