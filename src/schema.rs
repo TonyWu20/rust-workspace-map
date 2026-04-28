@@ -31,6 +31,9 @@ pub enum Error {
 
     #[error("glob pattern error: {0}")]
     GlobPattern(String),
+
+    #[error("workspace Cargo.toml is missing the [workspace] section")]
+    MissingWorkspaceSection,
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -276,6 +279,37 @@ pub struct TypeRef {
     #[builder(default)]
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub exported_by: Vec<String>,
+}
+
+// ── Error severity ─────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ErrorSeverity {
+    Error,
+    Warning,
+}
+
+// ── Error context ───────────────────────────────────────────────────────
+
+/// Optional context attached to an error, providing additional location
+/// and source information for diagnostics.
+#[derive(Debug, Clone, Default, serde::Serialize, bon::Builder)]
+#[serde(rename_all = "camelCase")]
+pub struct ErrorContext {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub crate_name: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub module_path: Option<String>,
+
+    /// Line number in the source file where the error occurred.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub line: Option<usize>,
+
+    /// A short source snippet near the error location (if available).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub snippet: Option<String>,
 }
 
 // ── Internal types ──────────────────────────────────────────────────────
