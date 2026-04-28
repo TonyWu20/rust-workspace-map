@@ -314,7 +314,7 @@ pub struct ErrorContext {
 
 // ── Internal types ──────────────────────────────────────────────────────
 
-/// Internal intermediate type consumed by module_tree.
+/// Internal intermediate type consumed by `module_tree`.
 #[derive(Debug, Clone, Default)]
 pub struct FileInfo {
     pub public_items: Vec<PublicItem>,

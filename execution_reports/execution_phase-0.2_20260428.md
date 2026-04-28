@@ -175,3 +175,40 @@
         |                |
     ```
 
+### TASK-8: Remove all crate-level clippy allow attributes and fix individual lint violations
+- **Status**: ✗ Failed
+- **Validation output**:
+  - `cargo clippy -p rust-workspace-map -- -D warnings`: FAILED (exit 101)
+    ```
+    --> src/lib.rs:41:10
+         |
+      35 |       let member_dirs = workspace::enumerate_members(&workspace_root)?;
+         |                         ---------------------------------------------- this expression has type `Vec<PathBuf>`
+    ...
+      40 |           .par_iter()
+         |            ---------- `ParallelIterator::Item` is `&PathBuf` here
+      41 |           .map(|dir| {
+         |  __________^
+      42 | |             let cargo_toml = dir.join("Cargo.toml");
+      43 | |             let mut crate_errors = Vec::new();
+    ...    |
+     116 | |             (Some(crate_info), crate_errors)
+     117 | |         })
+         | |__________^ `ParallelIterator::Item` changed to `(Option<CrateInfo>, Vec<ErrorEntry>)` here
+    note: required by a bound in `rayon::iter::ParallelIterator::collect`
+        --> /Users/tony/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rayon-1.12.0/src/iter/mod.rs:2056:12
+         |
+    2054 |     fn collect<C>(self) -> C
+         |        ------- required by a bound in this associated function
+    2055 |     where
+    2056 |         C: FromParallelIterator<Self::Item>,
+         |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `ParallelIterator::collect`
+         = note: the full name for the type has been written to '/Users/tony/programming/rust-workspace-map/target/debug/deps/rust_workspace_map-c0af38651655276e.long-type-9209811902749593541.txt'
+         = note: consider using `--verbose` to print the full type name to the console
+    
+    error[E0308]: mismatched types
+       --> src/lib.rs:123:16
+        |
+    123 |         if let Some(ci) = info {
+    ```
+

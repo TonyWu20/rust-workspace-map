@@ -99,6 +99,7 @@ pub(crate) fn build_parse_error_entry(path: &Path, err: &SynParseError) -> Error
 
 /// Extract all items with any form of `pub` visibility (excluding `Inherited`).
 /// Results are sorted by name then line for deterministic output.
+#[must_use]
 pub fn extract_public_items(items: &[syn::Item]) -> Vec<PublicItem> {
     let mut result: Vec<PublicItem> = items
         .iter()
@@ -113,12 +114,13 @@ pub fn extract_public_items(items: &[syn::Item]) -> Vec<PublicItem> {
 
 /// Extract all `use` statements. Braced imports are expanded to individual
 /// entries. Results sorted by path for determinism.
+#[must_use]
 pub fn extract_imports(items: &[syn::Item]) -> Vec<Import> {
     let mut result: Vec<Import> = items
         .iter()
         .filter_map(|item| {
             if let syn::Item::Use(u) = item {
-                Some(flatten_use_tree(&u.tree, String::new(), line_of_item(item)))
+                Some(flatten_use_tree(&u.tree, "", line_of_item(item)))
             } else {
                 None
             }
@@ -131,7 +133,8 @@ pub fn extract_imports(items: &[syn::Item]) -> Vec<Import> {
 
 // ── extract_re_exports ──────────────────────────────────────────────────
 
-/// Extract `pub use` re-exports. Results sorted by export_path.
+/// Extract `pub use` re-exports. Results sorted by `export_path`.
+#[must_use]
 pub fn extract_re_exports(items: &[syn::Item]) -> Vec<ReExport> {
     let mut result: Vec<ReExport> = items
         .iter()
@@ -160,6 +163,7 @@ pub fn extract_re_exports(items: &[syn::Item]) -> Vec<ReExport> {
 
 /// Extract `mod` declarations. Detects `#[cfg(test)]` via literal token
 /// matching. Results sorted by name.
+#[must_use]
 pub fn extract_submodules(items: &[syn::Item]) -> Vec<SubmoduleDecl> {
     let mut result: Vec<SubmoduleDecl> = items
         .iter()
@@ -193,6 +197,7 @@ pub fn extract_submodules(items: &[syn::Item]) -> Vec<SubmoduleDecl> {
 
 /// Extract `impl` blocks. Each `ImplInfo` records the target type name and
 /// the impl items (fn, type, const).
+#[must_use]
 pub fn extract_impls(items: &[syn::Item]) -> Vec<ImplInfo> {
     items
         .iter()
@@ -521,7 +526,7 @@ fn into_public_item(item: &syn::Item) -> Option<PublicItem> {
             &t.attrs,
         ),
         syn::Item::Macro(m) => {
-            let name = m.ident.as_ref().map(|i| i.to_string()).unwrap_or_default();
+            let name = m.ident.as_ref().map(ToString::to_string).unwrap_or_default();
             if name.is_empty() {
                 return None;
             }
@@ -555,7 +560,7 @@ fn into_public_item(item: &syn::Item) -> Option<PublicItem> {
     })
 }
 
-fn flatten_use_tree(tree: &syn::UseTree, prefix: String, line: usize) -> Vec<Import> {
+fn flatten_use_tree(tree: &syn::UseTree, prefix: &str, line: usize) -> Vec<Import> {
     match tree {
         syn::UseTree::Path(p) => {
             let new_prefix = if prefix.is_empty() {
@@ -563,7 +568,7 @@ fn flatten_use_tree(tree: &syn::UseTree, prefix: String, line: usize) -> Vec<Imp
             } else {
                 format!("{}::{}", prefix, p.ident)
             };
-            flatten_use_tree(&p.tree, new_prefix, line)
+            flatten_use_tree(&p.tree, &new_prefix, line)
         }
         syn::UseTree::Name(n) => {
             let path = if prefix.is_empty() {

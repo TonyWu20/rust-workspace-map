@@ -1,13 +1,4 @@
 #![warn(clippy::pedantic)]
-#![allow(clippy::missing_errors_doc)]
-#![allow(clippy::must_use_candidate)]
-#![allow(clippy::doc_markdown)]
-#![allow(clippy::uninlined_format_args)]
-#![allow(clippy::redundant_closure)]
-#![allow(clippy::collapsible_if)]
-#![allow(clippy::needless_pass_by_value)]
-#![allow(clippy::needless_borrow)]
-#![allow(clippy::redundant_closure_for_method_calls)]
 
 pub mod cargo_info;
 pub mod cross_refs;
@@ -33,7 +24,13 @@ use std::path::Path;
 /// 2. Process each crate in parallel (Cargo.toml parsing + module tree).
 /// 3. Compute cross-crate references.
 /// 4. Render JSON to stdout or the configured output file.
-pub fn run(config: Config) -> anyhow::Result<()> {
+///
+/// # Errors
+///
+/// Returns an error if the workspace root cannot be found, the workspace
+/// Cargo.toml is missing a `[workspace]` section, member crates cannot be
+/// parsed, or the JSON output cannot be written.
+pub fn run(config: &Config) -> anyhow::Result<()> {
     let workspace_root = workspace::find_workspace_root(&config.workspace_path)?;
     let member_dirs = workspace::enumerate_members(&workspace_root)?;
 

@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 /// Tries `{parent_dir}/{mod_name}.rs` first, then `{parent_dir}/{mod_name}/mod.rs`.
 ///
 /// Returns `None` if neither path exists.
+#[must_use]
 pub fn resolve_module_path(parent_dir: &Path, mod_name: &str) -> Option<PathBuf> {
     let rs_file = parent_dir.join(format!("{}.rs", mod_name));
     if rs_file.exists() {

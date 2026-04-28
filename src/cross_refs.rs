@@ -95,6 +95,7 @@ pub fn compute(crates: &mut [CrateInfo]) -> CrossReferences {
 
 // Helper: convert ItemKind to a short string for the TypeRef.kind field.
 impl crate::schema::PublicItem {
+    #[must_use]
     fn kind_to_string(&self) -> String {
         match self.kind {
             crate::schema::ItemKind::Struct => "struct".to_string(),
