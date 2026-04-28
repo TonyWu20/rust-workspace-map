@@ -37,5 +37,5 @@ fn main() -> anyhow::Result<()> {
         }
     };
 
-    rust_workspace_map::run(config)
+    rust_workspace_map::run(&config)
 }

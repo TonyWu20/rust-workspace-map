@@ -31,6 +31,9 @@ pub enum Error {
 
     #[error("glob pattern error: {0}")]
     GlobPattern(String),
+
+    #[error("workspace Cargo.toml is missing the [workspace] section")]
+    MissingWorkspaceSection,
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -278,9 +281,40 @@ pub struct TypeRef {
     pub exported_by: Vec<String>,
 }
 
+// ── Error severity ─────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ErrorSeverity {
+    Error,
+    Warning,
+}
+
+// ── Error context ───────────────────────────────────────────────────────
+
+/// Optional context attached to an error, providing additional location
+/// and source information for diagnostics.
+#[derive(Debug, Clone, Default, serde::Serialize, bon::Builder)]
+#[serde(rename_all = "camelCase")]
+pub struct ErrorContext {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub crate_name: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub module_path: Option<String>,
+
+    /// Line number in the source file where the error occurred.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub line: Option<usize>,
+
+    /// A short source snippet near the error location (if available).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub snippet: Option<String>,
+}
+
 // ── Internal types ──────────────────────────────────────────────────────
 
-/// Internal intermediate type consumed by module_tree.
+/// Internal intermediate type consumed by `module_tree`.
 #[derive(Debug, Clone, Default)]
 pub struct FileInfo {
     pub public_items: Vec<PublicItem>,
@@ -306,4 +340,10 @@ pub struct ErrorEntry {
     #[builder(default)]
     pub line: usize,
     pub message: String,
+    pub severity: ErrorSeverity,
+    pub kind: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub context: Option<ErrorContext>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cause: Option<String>,
 }

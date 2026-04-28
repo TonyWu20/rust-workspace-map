@@ -1,0 +1,2168 @@
+[meta]
+title = "Phase 0.2: Hardening for Trustworthiness"
+source_branch = "phase-0.2"
+created = "2026-04-28"
+
+[dependencies]
+TASK-PREP = []
+TASK-3 = ["TASK-1"]
+TASK-4 = ["TASK-1", "TASK-2", "TASK-3"]
+TASK-5 = ["TASK-4"]
+TASK-6 = ["TASK-2"]
+TASK-7 = ["TASK-4", "TASK-5"]
+TASK-8 = ["TASK-7"]
+TASK-9 = ["TASK-PREP", "TASK-5", "TASK-6", "TASK-8"]
+TASK-10 = ["TASK-PREP", "TASK-9"]
+
+[tasks.TASK-PREP]
+description = "Add tempfile dev-dependency for unit and integration tests"
+type = "replace"
+acceptance = [
+    "cargo check -p rust-workspace-map",
+]
+
+[[tasks.TASK-PREP.changes]]
+file = "Cargo.toml"
+before = "proc-macro2 = { version = \"1\", features = [\"span-locations\"] }"
+after = """proc-macro2 = { version = "1", features = ["span-locations"] }
+
+[dev-dependencies]
+tempfile = "3\""""
+
+[tasks.TASK-1]
+description = "Add ErrorSeverity enum and ErrorContext struct to schema.rs"
+type = "replace"
+acceptance = [
+    "cargo check -p rust-workspace-map",
+]
+
+[[tasks.TASK-1.changes]]
+file = "src/schema.rs"
+before = '''// ── Internal types ──────────────────────────────────────────────────────
+
+/// Internal intermediate type consumed by module_tree.
+#[derive(Debug, Clone, Default)]
+pub struct FileInfo {
+'''
+after = '''// ── Error severity ─────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ErrorSeverity {
+    Error,
+    Warning,
+}
+
+// ── Error context ───────────────────────────────────────────────────────
+
+/// Optional context attached to an error, providing additional location
+/// and source information for diagnostics.
+#[derive(Debug, Clone, Default, serde::Serialize, bon::Builder)]
+#[serde(rename_all = "camelCase")]
+pub struct ErrorContext {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub crate_name: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub module_path: Option<String>,
+
+    /// Line number in the source file where the error occurred.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub line: Option<usize>,
+
+    /// A short source snippet near the error location (if available).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub snippet: Option<String>,
+}
+
+// ── Internal types ──────────────────────────────────────────────────────
+
+/// Internal intermediate type consumed by module_tree.
+#[derive(Debug, Clone, Default)]
+pub struct FileInfo {
+'''
+
+[tasks.TASK-2]
+description = "Add MissingWorkspaceSection variant to Error enum in schema.rs"
+type = "replace"
+acceptance = [
+    "cargo check -p rust-workspace-map",
+]
+
+[[tasks.TASK-2.changes]]
+file = "src/schema.rs"
+before = '''    #[error("glob pattern error: {0}")]
+    GlobPattern(String),
+}
+
+pub type Result<T> = std::result::Result<T, Error>;'''
+after = '''    #[error("glob pattern error: {0}")]
+    GlobPattern(String),
+
+    #[error("workspace Cargo.toml is missing the [workspace] section")]
+    MissingWorkspaceSection,
+}
+
+pub type Result<T> = std::result::Result<T, Error>;'''
+
+[tasks.TASK-3]
+description = "Expand ErrorEntry struct with severity, kind, context, and cause fields"
+type = "replace"
+acceptance = [
+    "cargo check -p rust-workspace-map",
+]
+
+[[tasks.TASK-3.changes]]
+file = "src/schema.rs"
+before = '''#[derive(Debug, Clone, serde::Serialize, bon::Builder)]
+#[serde(rename_all = "camelCase")]
+pub struct ErrorEntry {
+    pub file: String,
+    #[builder(default)]
+    pub line: usize,
+    pub message: String,
+}
+'''
+after = '''#[derive(Debug, Clone, serde::Serialize, bon::Builder)]
+#[serde(rename_all = "camelCase")]
+pub struct ErrorEntry {
+    pub file: String,
+    #[builder(default)]
+    pub line: usize,
+    pub message: String,
+    pub severity: ErrorSeverity,
+    pub kind: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub context: Option<ErrorContext>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cause: Option<String>,
+}
+'''
+
+[tasks.TASK-4]
+description = "Change parse_file to return ParsedFile with optional parse errors instead of Result"
+type = "replace"
+acceptance = [
+    "true  # applied atomically with TASK-5; compilation verified at TASK-5",
+]
+
+[[tasks.TASK-4.changes]]
+file = "src/file_parser.rs"
+before = '''use crate::schema::{
+    Error, FileInfo, ImplInfo, ImplItem, ImplItemKind, Import, ItemAttrs, ItemKind, PublicItem,
+    ReExport, Result, SubmoduleDecl,
+};
+use std::path::Path;
+
+// ── parse_file ──────────────────────────────────────────────────────────
+
+/// Read and parse a Rust source file. Returns the raw `syn::File` AST (needed
+/// by `module_tree` for inline module item extraction) and the extracted
+/// `FileInfo`. On parse failure, warns to stderr and returns empty results.
+pub fn parse_file(path: &Path) -> Result<(syn::File, FileInfo)> {
+    let content = std::fs::read_to_string(path).map_err(|source| Error::FileRead {
+        path: path.to_path_buf(),
+        source,
+    })?;
+
+    let file = match syn::parse_file(&content) {
+        Ok(f) => f,
+        Err(e) => {
+            eprintln!("warning: failed to parse {}: {}", path.display(), e);
+            let empty = syn::File {
+                shebang: None,
+                attrs: vec![],
+                items: vec![],
+            };
+            let info = FileInfo::default();
+            return Ok((empty, info));
+        }
+    };
+
+    let info = FileInfo {
+        public_items: extract_public_items(&file.items),
+        imports: extract_imports(&file.items),
+        re_exports: extract_re_exports(&file.items),
+        submodules: extract_submodules(&file.items),
+        impls: extract_impls(&file.items),
+    };
+
+    Ok((file, info))
+}'''
+after = '''use crate::schema::{
+    Error, ErrorEntry, ErrorSeverity, FileInfo, ImplInfo, ImplItem, ImplItemKind, Import,
+    ItemAttrs, ItemKind, PublicItem, ReExport, Result, SubmoduleDecl,
+};
+use std::path::Path;
+
+// ── Internal parse result types ────────────────────────────────────────
+
+/// Result of parsing a Rust source file.
+///
+/// Unlike `Result<T, Error>`, this type always succeeds — parse
+/// failures are reported as data, not as errors, so the caller
+/// can continue processing other files. The caller constructs
+/// `ErrorEntry` values from `SynParseError` when needed.
+pub struct ParsedFile {
+    pub ast: syn::File,
+    pub file_info: FileInfo,
+    pub parse_error: Option<SynParseError>,
+}
+
+/// Structured information about a parse failure.
+pub struct SynParseError {
+    pub message: String,
+    pub line: usize,
+}
+
+// ── parse_file ──────────────────────────────────────────────────────────
+
+/// Read and parse a Rust source file.
+///
+/// On parse failure, returns the original file content and a
+/// `SynParseError` alongside an empty `FileInfo`. Callers use the
+/// error to construct an `ErrorEntry`.
+pub fn parse_file(path: &Path) -> ParsedFile {
+    let content = match std::fs::read_to_string(path) {
+        Ok(c) => c,
+        Err(source) => {
+            let err = SynParseError {
+                message: source.to_string(),
+                line: 0,
+            };
+            return ParsedFile {
+                ast: syn::File {
+                    shebang: None,
+                    attrs: vec![],
+                    items: vec![],
+                },
+                file_info: FileInfo::default(),
+                parse_error: Some(err),
+            };
+        }
+    };
+
+    match syn::parse_file(&content) {
+        Ok(file) => {
+            let file_info = FileInfo {
+                public_items: extract_public_items(&file.items),
+                imports: extract_imports(&file.items),
+                re_exports: extract_re_exports(&file.items),
+                submodules: extract_submodules(&file.items),
+                impls: extract_impls(&file.items),
+            };
+            ParsedFile {
+                ast: file,
+                file_info,
+                parse_error: None,
+            }
+        },
+        Err(e) => {
+            let line = e.span().start().line;
+            let err = SynParseError {
+                message: e.to_string(),
+                line,
+            };
+            ParsedFile {
+                ast: syn::File {
+                    shebang: None,
+                    attrs: vec![],
+                    items: vec![],
+                },
+                file_info: FileInfo::default(),
+                parse_error: Some(err),
+            }
+        }
+    }
+}
+
+pub(crate) fn build_parse_error_entry(path: &Path, err: &SynParseError) -> ErrorEntry {
+    ErrorEntry::builder()
+        .file(path.to_string_lossy().to_string())
+        .line(err.line)
+        .message(err.message.clone())
+        .severity(ErrorSeverity::Error)
+        .kind("syn_parse_error".to_string())
+        .build()
+}'''
+
+[tasks.TASK-5]
+description = "Refactor module_tree.rs: fix path fallbacks, add error collection, change build_module_tree return type"
+type = "replace"
+acceptance = [
+    "cargo check -p rust-workspace-map",
+]
+
+[[tasks.TASK-5.changes]]
+file = "src/module_tree.rs"
+before = "use crate::schema::{FileInfo, ModuleInfo, Result, SubmoduleDecl};"
+after = "use crate::schema::{ErrorContext, ErrorEntry, ErrorSeverity, FileInfo, ModuleInfo, Result, SubmoduleDecl};"
+
+[[tasks.TASK-5.changes]]
+file = "src/module_tree.rs"
+before = '''/// Build the full module tree for a crate starting from its entry point
+/// (e.g., `src/lib.rs`). Returns a flat `Vec<ModuleInfo>` containing the
+/// root module and all recursively discovered submodules.
+pub fn build_module_tree(crate_root: &Path, crate_name: &str) -> Result<Vec<ModuleInfo>> {
+    let mut visited = HashSet::new();
+    let parent_dir = crate_root.parent().unwrap_or_else(|| Path::new("."));
+
+    let (ast, file_info) = file_parser::parse_file(crate_root)?;
+    visited.insert(crate_root.to_path_buf());
+
+    let root_module = build_module_info(
+        crate_name,
+        crate_root,
+        "pub",
+        &file_info.public_items,
+        &file_info.imports,
+        &file_info.re_exports,
+        &file_info.submodules,
+    );
+
+    let mut modules = vec![root_module];
+
+    for sub in &file_info.submodules {
+        if sub.is_test {
+            continue;
+        }
+        let sub_module_path = format!("{}::{}", crate_name, sub.name);
+        let child_modules = process_submodule(
+            &sub_module_path,
+            &sub.name,
+            &ast.items,
+            parent_dir,
+            crate_root,
+            &mut visited,
+        )?;
+        modules.extend(child_modules);
+    }
+
+    Ok(modules)
+}'''
+after = '''/// Build the full module tree for a crate starting from its entry point
+/// (e.g., `src/lib.rs`). Returns a tuple of module info and any errors
+/// encountered during submodule parsing (including orphaned module warnings).
+pub fn build_module_tree(
+    crate_root: &Path,
+    crate_name: &str,
+) -> (Vec<ModuleInfo>, Vec<crate::schema::ErrorEntry>) {
+
+    let mut visited = HashSet::new();
+    let parent_dir = crate_root.parent().unwrap_or(crate_root);
+
+    let parsed = file_parser::parse_file(crate_root);
+    let mut errors: Vec<ErrorEntry> = Vec::new();
+    if let Some(ref err) = parsed.parse_error {
+        errors.push(crate::file_parser::build_parse_error_entry(crate_root, err));
+    }
+    visited.insert(crate_root.to_path_buf());
+
+    let root_module = build_module_info(
+        crate_name,
+        crate_root,
+        "pub",
+        &parsed.file_info.public_items,
+        &parsed.file_info.imports,
+        &parsed.file_info.re_exports,
+        &parsed.file_info.submodules,
+    );
+
+    let mut modules = vec![root_module];
+
+    for sub in &parsed.file_info.submodules {
+        if sub.is_test {
+            continue;
+        }
+        let sub_module_path = format!("{}::{}", crate_name, sub.name);
+        let (child_modules, child_errors) = process_submodule(
+            &sub_module_path,
+            &sub.name,
+            &parsed.ast.items,
+            parent_dir,
+            crate_root,
+            &mut visited,
+        );
+        errors.extend(child_errors);
+        modules.extend(child_modules);
+    }
+
+    (modules, errors)
+}'''
+
+[[tasks.TASK-5.changes]]
+file = "src/module_tree.rs"
+before = '''    let Some(mod_item) = mod_item else {
+        eprintln!("warning: orphaned module {}", module_path);
+        return Ok(vec![ModuleInfo::builder()
+            .path(module_path.to_string())
+            .file("<unresolved>".to_string())
+            .visibility("private".to_string())
+            .build()]);
+    };'''
+after = '''    let Some(mod_item) = mod_item else {
+        let err = ErrorEntry::builder()
+            .file(String::new())
+            .message(format!("orphaned module: {module_path}"))
+            .severity(ErrorSeverity::Warning)
+            .kind("orphaned_module".to_string())
+            .context(ErrorContext::builder()
+                .module_path(module_path.to_string())
+                .build())
+            .build();
+        return (vec![ModuleInfo::builder()
+            .path(module_path.to_string())
+            .file("<unresolved>".to_string())
+            .visibility("private".to_string())
+            .build()], vec![err]);
+    };'''
+
+[[tasks.TASK-5.changes]]
+file = "src/module_tree.rs"
+before = '''        let Some(ref file_path) = file_path else {
+            eprintln!("warning: orphaned module {}", module_path);
+            return Ok(vec![ModuleInfo::builder()
+                .path(module_path.to_string())
+                .file("<unresolved>".to_string())
+                .visibility(visibility.to_string())
+                .build()]);
+        };'''
+after = '''        let Some(ref file_path) = file_path else {
+            let err = ErrorEntry::builder()
+                .file(String::new())
+                .message(format!("orphaned module: {module_path}"))
+                .severity(ErrorSeverity::Warning)
+                .kind("orphaned_module".to_string())
+                .context(ErrorContext::builder()
+                    .module_path(module_path.to_string())
+                    .build())
+                .build();
+            return (vec![ModuleInfo::builder()
+                .path(module_path.to_string())
+                .file("<unresolved>".to_string())
+                .visibility(visibility.to_string())
+                .build()], vec![err]);
+        };'''
+
+[[tasks.TASK-5.changes]]
+file = "src/module_tree.rs"
+before = '''        let (ast, file_info) = file_parser::parse_file(file_path)?;
+        process_module_info(
+            module_path,
+            file_path,
+            visibility,
+            &file_info,
+            &ast.items,
+            &file_path.parent().unwrap_or_else(|| Path::new(".")),
+            visited,
+        )'''
+after = '''        let parsed = file_parser::parse_file(file_path);
+        let mut errors: Vec<ErrorEntry> = Vec::new();
+        if let Some(ref err) = parsed.parse_error {
+            errors.push(crate::file_parser::build_parse_error_entry(file_path, err));
+        }
+        process_module_info(
+            module_path,
+            file_path,
+            visibility,
+            &parsed.file_info,
+            &parsed.ast.items,
+            &file_path.parent().unwrap_or(file_path),
+            visited,
+            &mut errors,
+        )'''
+
+[[tasks.TASK-5.changes]]
+file = "src/module_tree.rs"
+before = '''        if visited.contains(file_path.as_path()) {
+            return Ok(vec![]); // cycle detected
+        }'''
+after = '''        if visited.contains(file_path.as_path()) {
+            return (vec![], vec![]); // cycle detected
+        }'''
+
+[[tasks.TASK-5.changes]]
+file = "src/module_tree.rs"
+before = '''/// Resolve a `mod name;` declaration to a file path.
+/// Tries `{parent_dir}/{mod_name}.rs` first, then `{parent_dir}/{mod_name}/mod.rs`.
+pub fn resolve_module_path(parent_dir: &Path, mod_name: &str) -> Option<PathBuf> {'''
+after = '''/// Resolve a `mod name;` declaration to a file path.
+/// Tries `{parent_dir}/{mod_name}.rs` first, then `{parent_dir}/{mod_name}/mod.rs`.
+///
+/// Returns `None` if neither path exists.
+pub fn resolve_module_path(parent_dir: &Path, mod_name: &str) -> Option<PathBuf> {'''
+
+[[tasks.TASK-5.changes]]
+file = "src/module_tree.rs"
+before = '''fn process_submodule(
+    module_path: &str,
+    mod_name: &str,
+    parent_items: &[syn::Item],
+    parent_dir: &Path,
+    parent_file: &Path,
+    visited: &mut HashSet<PathBuf>,
+) -> Result<Vec<ModuleInfo>> {'''
+after = '''fn process_submodule(
+    module_path: &str,
+    mod_name: &str,
+    parent_items: &[syn::Item],
+    parent_dir: &Path,
+    parent_file: &Path,
+    visited: &mut HashSet<PathBuf>,
+) -> (Vec<ModuleInfo>, Vec<crate::schema::ErrorEntry>) {'''
+
+[[tasks.TASK-5.changes]]
+file = "src/module_tree.rs"
+before = '''    if let Some((_, ref inline_items)) = mod_item.content {
+        // Inline module: process its body items directly (no file lookup).
+        process_module_items(
+            module_path,
+            parent_file,
+            visibility,
+            inline_items,
+            parent_dir,
+            visited,
+        )
+    } else {'''
+after = '''    if let Some((_, ref inline_items)) = mod_item.content {
+        // Inline module: process its body items directly (no file lookup).
+        let (modules, errs) = process_module_items(
+            module_path,
+            parent_file,
+            visibility,
+            inline_items,
+            parent_dir,
+            visited,
+        );
+        return (modules, errs);
+    } else {'''
+
+[[tasks.TASK-5.changes]]
+file = "src/module_tree.rs"
+before = '''fn process_module_items(
+    module_path: &str,
+    file_path: &Path,
+    visibility: &str,
+    items: &[syn::Item],
+    parent_dir: &Path,
+    visited: &mut HashSet<PathBuf>,
+) -> Result<Vec<ModuleInfo>> {'''
+after = '''fn process_module_items(
+    module_path: &str,
+    file_path: &Path,
+    visibility: &str,
+    items: &[syn::Item],
+    parent_dir: &Path,
+    visited: &mut HashSet<PathBuf>,
+) -> (Vec<ModuleInfo>, Vec<crate::schema::ErrorEntry>) {'''
+
+[[tasks.TASK-5.changes]]
+file = "src/module_tree.rs"
+before = '''    let file_info = FileInfo {
+        public_items: file_parser::extract_public_items(items),
+        imports: file_parser::extract_imports(items),
+        re_exports: file_parser::extract_re_exports(items),
+        submodules: file_parser::extract_submodules(items),
+        impls: file_parser::extract_impls(items),
+    };
+    process_module_info(module_path, file_path, visibility, &file_info, items, parent_dir, visited)
+}'''
+after = '''    let file_info = FileInfo {
+        public_items: file_parser::extract_public_items(items),
+        imports: file_parser::extract_imports(items),
+        re_exports: file_parser::extract_re_exports(items),
+        submodules: file_parser::extract_submodules(items),
+        impls: file_parser::extract_impls(items),
+    };
+    process_module_info(module_path, file_path, visibility, &file_info, items, parent_dir, visited, &mut Vec::new())
+}'''
+
+[[tasks.TASK-5.changes]]
+file = "src/module_tree.rs"
+before = '''fn process_module_info(
+    module_path: &str,
+    file_path: &Path,
+    visibility: &str,
+    file_info: &FileInfo,
+    items: &[syn::Item],
+    _parent_dir: &Path,
+    visited: &mut HashSet<PathBuf>,
+) -> Result<Vec<ModuleInfo>> {
+    let mut modules = vec![build_module_info(
+        module_path,
+        file_path,
+        visibility,
+        &file_info.public_items,
+        &file_info.imports,
+        &file_info.re_exports,
+        &file_info.submodules,
+    )];
+
+    for sub in &file_info.submodules {
+        if sub.is_test {
+            continue;
+        }
+        let child_path = format!("{}::{}", module_path, sub.name);
+        let child_dir = file_path.parent().unwrap_or_else(|| Path::new("."));
+        let child_modules = process_submodule(
+            &child_path,
+            &sub.name,
+            items,
+            child_dir,
+            file_path,
+            visited,
+        )?;
+        modules.extend(child_modules);
+    }
+
+    Ok(modules)
+}'''
+after = '''fn process_module_info(
+    module_path: &str,
+    file_path: &Path,
+    visibility: &str,
+    file_info: &FileInfo,
+    items: &[syn::Item],
+    _parent_dir: &Path,
+    visited: &mut HashSet<PathBuf>,
+    errors: &mut Vec<crate::schema::ErrorEntry>,
+) -> (Vec<ModuleInfo>, Vec<crate::schema::ErrorEntry>) {
+    let mut modules = vec![build_module_info(
+        module_path,
+        file_path,
+        visibility,
+        &file_info.public_items,
+        &file_info.imports,
+        &file_info.re_exports,
+        &file_info.submodules,
+    )];
+
+    for sub in &file_info.submodules {
+        if sub.is_test {
+            continue;
+        }
+        let child_path = format!("{}::{}", module_path, sub.name);
+        let child_dir = file_path.parent().unwrap_or(file_path);
+        let (child_modules, child_errors) = process_submodule(
+            &child_path,
+            &sub.name,
+            items,
+            child_dir,
+            file_path,
+            visited,
+        );
+        errors.extend(child_errors);
+        modules.extend(child_modules);
+    }
+
+    (modules, errors.clone())
+}'''
+
+
+[tasks.TASK-6]
+description = "Update workspace.rs enumerate_members to return MissingWorkspaceSection error"
+type = "replace"
+acceptance = [
+    "cargo check -p rust-workspace-map",
+]
+
+[[tasks.TASK-6.changes]]
+file = "src/workspace.rs"
+before = '''    let members: Vec<String> = parsed
+        .get("workspace")
+        .and_then(|w| w.get("members"))
+        .and_then(|m| m.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect()
+        })
+        .unwrap_or_default();'''
+after = '''    let members: Vec<String> = match parsed.get("workspace") {
+        None => return Err(Error::MissingWorkspaceSection),
+        Some(workspace) => workspace
+            .get("members")
+            .and_then(|m| m.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default(),
+    };'''
+
+[[tasks.TASK-6.changes]]
+file = "src/workspace.rs"
+before = '''/// Walk up the directory tree from `start_path` to find a `Cargo.toml`
+/// containing a `[workspace]` section. Returns the directory containing it.
+pub fn find_workspace_root(start_path: &Path) -> Result<PathBuf> {'''
+after = '''/// Walk up the directory tree from `start_path` to find a `Cargo.toml`
+/// containing a `[workspace]` section. Returns the directory containing it.
+///
+/// # Errors
+///
+/// Returns `Error::WorkspaceRootNotFound` if no `Cargo.toml` with a
+/// `[workspace]` section is found in any ancestor directory.
+pub fn find_workspace_root(start_path: &Path) -> Result<PathBuf> {'''
+
+[[tasks.TASK-6.changes]]
+file = "src/workspace.rs"
+before = '''/// Parse the workspace `Cargo.toml`, resolve member paths (including glob
+/// patterns), apply `exclude` list, and return absolute paths to each member
+/// crate directory.
+pub fn enumerate_members(root: &Path) -> Result<Vec<PathBuf>> {'''
+after = '''/// Parse the workspace `Cargo.toml`, resolve member paths (including glob
+/// patterns), apply `exclude` list, and return absolute paths to each member
+/// crate directory.
+///
+/// # Errors
+///
+/// Returns `Error::MissingWorkspaceSection` if the `Cargo.toml` lacks a
+/// `[workspace]` section entirely.
+pub fn enumerate_members(root: &Path) -> Result<Vec<PathBuf>> {'''
+
+[tasks.TASK-7]
+description = "Refactor lib.rs run(): parallel error collection, error entry construction, remove unwrap_or_default"
+type = "replace"
+acceptance = [
+    "cargo check -p rust-workspace-map",
+]
+
+[[tasks.TASK-7.changes]]
+file = "src/lib.rs"
+before = '''use anyhow::Context;
+use rayon::prelude::*;
+use schema::{
+    CrateInfo, CrateType, ErrorEntry, ModuleInfo, WorkspaceInfo, WorkspaceMap,
+};
+use std::path::Path;'''
+after = '''use anyhow::Context;
+use rayon::prelude::*;
+use schema::{
+    CrateInfo, CrateType, ErrorEntry, ErrorSeverity, ModuleInfo, WorkspaceInfo,
+    WorkspaceMap,
+};
+use std::path::Path;'''
+
+[[tasks.TASK-7.changes]]
+file = "src/lib.rs"
+before = '''    let errors: Vec<ErrorEntry> = Vec::new();
+
+    let mut crate_infos: Vec<CrateInfo> = member_dirs
+        .par_iter()
+        .filter_map(|dir| {
+            let cargo_toml = dir.join("Cargo.toml");
+
+            let (pkg, deps) = match cargo_info::parse_cargo_toml(&cargo_toml) {
+                Ok(v) => v,
+                Err(e) => {
+                    eprintln!(
+                        "warning: failed to parse {}: {}",
+                        cargo_toml.display(),
+                        e
+                    );
+                    return None;
+                }
+            };
+
+            let roots = workspace::resolve_crate_roots(dir);
+            if roots.is_empty() {
+                eprintln!(
+                    "warning: no crate entry points found in {}",
+                    dir.display()
+                );
+                return None;
+            }
+
+            let crate_type = if roots.iter().any(|(_, t)| *t == CrateType::Lib)
+                && roots.iter().any(|(_, t)| *t == CrateType::Bin)
+            {
+                CrateType::LibAndBin
+            } else {
+                roots.first().map_or(CrateType::Lib, |(_, t)| *t)
+            };
+
+            let pkg_name = pkg.name.clone();
+            let mut modules: Vec<ModuleInfo> = roots
+                .iter()
+                .flat_map(|(root, _ty)| {
+                    module_tree::build_module_tree(root, &pkg_name).unwrap_or_default()
+                })
+                .collect();
+
+            // Relativize all paths to the workspace root.
+            for m in &mut modules {
+                m.file = relativize_path(&m.file, &workspace_root);
+                for item in &mut m.public_items {
+                    item.file = relativize_path(&item.file, &workspace_root);
+                }
+            }
+
+            let crate_root = roots
+                .first()
+                .map(|(r, _)| relativize_path(&r.to_string_lossy(), &workspace_root))
+                .unwrap_or_default();
+
+            let rebuilt_pkg = schema::PackageInfo::builder()
+                .name(pkg.name)
+                .version(pkg.version)
+                .edition(pkg.edition)
+                .crate_type(crate_type)
+                .build();
+
+            Some(
+                CrateInfo::builder()
+                    .name(pkg_name)
+                    .root(crate_root)
+                    .package(rebuilt_pkg)
+                    .modules(modules)
+                    .deps(deps)
+                    .build(),
+            )
+        })
+        .collect();'''
+after = '''    let mut crate_errors: Vec<ErrorEntry> = Vec::new();
+
+    let results: Vec<(CrateInfo, Vec<ErrorEntry>)> = member_dirs
+        .par_iter()
+        .map(|dir| {
+            let cargo_toml = dir.join("Cargo.toml");
+            let mut crate_errors = Vec::new();
+
+            let (pkg, deps) = match cargo_info::parse_cargo_toml(&cargo_toml) {
+                Ok(v) => v,
+                Err(e) => {
+                    crate_errors.push(ErrorEntry::builder()
+                        .file(cargo_toml.to_string_lossy().to_string())
+                        .message(format!("failed to parse Cargo.toml: {e}"))
+                        .severity(ErrorSeverity::Error)
+                        .kind("toml_parse_error".to_string())
+                        .cause(e.to_string())
+                        .build());
+                    return (None, crate_errors);
+                }
+            };
+
+            let roots = workspace::resolve_crate_roots(dir);
+            if roots.is_empty() {
+                crate_errors.push(ErrorEntry::builder()
+                    .file(dir.to_string_lossy().to_string())
+                    .message("no crate entry points found".to_string())
+                    .severity(ErrorSeverity::Warning)
+                    .kind("missing_crate_roots".to_string())
+                    .build());
+                return (None, crate_errors);
+            }
+
+            let crate_type = if roots.iter().any(|(_, t)| *t == CrateType::Lib)
+                && roots.iter().any(|(_, t)| *t == CrateType::Bin)
+            {
+                CrateType::LibAndBin
+            } else {
+                roots.first().map_or(CrateType::Lib, |(_, t)| *t)
+            };
+
+            let pkg_name = pkg.name.clone();
+            let mut modules: Vec<ModuleInfo> = Vec::new();
+            let mut collected_errors = Vec::new();
+            for (root, _ty) in &roots {
+                let (m, e) = module_tree::build_module_tree(&root, &pkg_name);
+                modules.extend(m);
+                collected_errors.extend(e);
+            }
+            crate_errors.extend(collected_errors);
+
+            // Relativize all paths to the workspace root.
+            for m in &mut modules {
+                m.file = relativize_path(&m.file, &workspace_root);
+                for item in &mut m.public_items {
+                    item.file = relativize_path(&item.file, &workspace_root);
+                }
+            }
+
+            let crate_root = roots
+                .first()
+                .map(|(r, _)| relativize_path(&r.to_string_lossy(), &workspace_root))
+                .unwrap_or_default();
+
+            let rebuilt_pkg = schema::PackageInfo::builder()
+                .name(pkg.name)
+                .version(pkg.version)
+                .edition(pkg.edition)
+                .crate_type(crate_type)
+                .build();
+
+            let crate_info = CrateInfo::builder()
+                .name(pkg_name)
+                .root(crate_root)
+                .package(rebuilt_pkg)
+                .modules(modules)
+                .deps(deps)
+                .build();
+
+            (Some(crate_info), crate_errors)
+        })
+        .collect();
+
+    let mut crate_infos: Vec<CrateInfo> = Vec::new();
+
+    for (info, errs) in results {
+        if let Some(ci) = info {
+            crate_errors.extend(errs);
+            crate_infos.push(ci);
+        }
+    }'''
+
+[[tasks.TASK-7.changes]]
+file = "src/lib.rs"
+before = '''    let map = WorkspaceMap::builder()
+        .workspace(workspace_info)
+        .crates(crate_infos)
+        .cross_references(cross_refs)
+        .errors(errors)
+        .workspace_root(workspace_root.clone())
+        .build();'''
+after = '''    let map = WorkspaceMap::builder()
+        .workspace(workspace_info)
+        .crates(crate_infos)
+        .cross_references(cross_refs)
+        .errors(crate_errors)
+        .workspace_root(workspace_root.clone())
+        .build();'''
+
+[tasks.TASK-8]
+description = "Remove all crate-level clippy allow attributes and fix individual lint violations"
+type = "replace"
+acceptance = [
+    "cargo clippy -p rust-workspace-map -- -D warnings",
+]
+
+[[tasks.TASK-8.changes]]
+file = "src/lib.rs"
+before = '''#![warn(clippy::pedantic)]
+#![allow(clippy::missing_errors_doc)]
+#![allow(clippy::must_use_candidate)]
+#![allow(clippy::doc_markdown)]
+#![allow(clippy::uninlined_format_args)]
+#![allow(clippy::redundant_closure)]
+#![allow(clippy::collapsible_if)]
+#![allow(clippy::needless_pass_by_value)]
+#![allow(clippy::needless_borrow)]
+#![allow(clippy::redundant_closure_for_method_calls)]'''
+after = '''#![warn(clippy::pedantic)]'''
+
+[[tasks.TASK-8.changes]]
+file = "src/lib.rs"
+before = '''/// Run the full workspace mapping pipeline.
+///
+/// 1. Discover workspace root and member crates.
+/// 2. Process each crate in parallel (Cargo.toml parsing + module tree).
+/// 3. Compute cross-crate references.
+/// 4. Render JSON to stdout or the configured output file.
+pub fn run(config: Config) -> anyhow::Result<()> {'''
+after = '''/// Run the full workspace mapping pipeline.
+///
+/// 1. Discover workspace root and member crates.
+/// 2. Process each crate in parallel (Cargo.toml parsing + module tree).
+/// 3. Compute cross-crate references.
+/// 4. Render JSON to stdout or the configured output file.
+///
+/// # Errors
+///
+/// Returns an error if the workspace root cannot be found, the workspace
+/// Cargo.toml is missing a `[workspace]` section, member crates cannot be
+/// parsed, or the JSON output cannot be written.
+pub fn run(config: Config) -> anyhow::Result<()> {'''
+
+[[tasks.TASK-8.changes]]
+file = "src/lib.rs"
+before = '''    let workspace_name = workspace_root
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_default();'''
+after = '''    let workspace_name = workspace_root
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_default();'''
+
+[[tasks.TASK-8.changes]]
+file = "src/lib.rs"
+before = '''/// Strip the workspace root prefix from a path string, returning a
+/// workspace-relative path. If the prefix doesn't match, returns the
+/// original string unchanged.
+fn relativize_path(path_str: &str, root: &Path) -> String {
+    let p = Path::new(path_str);
+    match p.strip_prefix(root) {
+        Ok(rel) => rel.to_string_lossy().to_string(),
+        Err(_) => path_str.to_string(),
+    }
+}'''
+after = '''/// Strip the workspace root prefix from a path string, returning a
+/// workspace-relative path. If the prefix doesn't match, returns the
+/// original string unchanged.
+fn relativize_path(path_str: &str, root: &Path) -> String {
+    let p = Path::new(path_str);
+    match p.strip_prefix(root) {
+        Ok(rel) => rel.to_string_lossy().to_string(),
+        Err(_) => path_str.to_string(),
+    }
+}'''
+
+[[tasks.TASK-8.changes]]
+file = "src/file_parser.rs"
+before = '''/// Extract all items with any form of `pub` visibility (excluding `Inherited`).
+/// Results are sorted by name then line for deterministic output.
+pub fn extract_public_items(items: &[syn::Item]) -> Vec<PublicItem> {'''
+after = '''/// Extract all items with any form of `pub` visibility (excluding `Inherited`).
+/// Results are sorted by name then line for deterministic output.
+#[must_use]
+pub fn extract_public_items(items: &[syn::Item]) -> Vec<PublicItem> {'''
+
+[[tasks.TASK-8.changes]]
+file = "src/file_parser.rs"
+before = '''/// Extract all `use` statements. Braced imports are expanded to individual
+/// entries. Results sorted by path for determinism.
+pub fn extract_imports(items: &[syn::Item]) -> Vec<Import> {'''
+after = '''/// Extract all `use` statements. Braced imports are expanded to individual
+/// entries. Results sorted by path for determinism.
+#[must_use]
+pub fn extract_imports(items: &[syn::Item]) -> Vec<Import> {'''
+
+[[tasks.TASK-8.changes]]
+file = "src/file_parser.rs"
+before = '''/// Extract `pub use` re-exports. Results sorted by export_path.
+pub fn extract_re_exports(items: &[syn::Item]) -> Vec<ReExport> {'''
+after = '''/// Extract `pub use` re-exports. Results sorted by export_path.
+#[must_use]
+pub fn extract_re_exports(items: &[syn::Item]) -> Vec<ReExport> {'''
+
+[[tasks.TASK-8.changes]]
+file = "src/file_parser.rs"
+before = '''/// Extract `mod` declarations. Detects `#[cfg(test)]` via literal token
+/// matching. Results sorted by name.
+pub fn extract_submodules(items: &[syn::Item]) -> Vec<SubmoduleDecl> {'''
+after = '''/// Extract `mod` declarations. Detects `#[cfg(test)]` via literal token
+/// matching. Results sorted by name.
+#[must_use]
+pub fn extract_submodules(items: &[syn::Item]) -> Vec<SubmoduleDecl> {'''
+
+[[tasks.TASK-8.changes]]
+file = "src/file_parser.rs"
+before = '''/// Extract `impl` blocks. Each `ImplInfo` records the target type name and
+/// the impl items (fn, type, const).
+pub fn extract_impls(items: &[syn::Item]) -> Vec<ImplInfo> {'''
+after = '''/// Extract `impl` blocks. Each `ImplInfo` records the target type name and
+/// the impl items (fn, type, const).
+#[must_use]
+pub fn extract_impls(items: &[syn::Item]) -> Vec<ImplInfo> {'''
+
+[[tasks.TASK-8.changes]]
+file = "src/module_tree.rs"
+before = '''/// Resolve a `mod name;` declaration to a file path.
+/// Tries `{parent_dir}/{mod_name}.rs` first, then `{parent_dir}/{mod_name}/mod.rs`.
+///
+/// Returns `None` if neither path exists.
+pub fn resolve_module_path(parent_dir: &Path, mod_name: &str) -> Option<PathBuf> {'''
+after = '''/// Resolve a `mod name;` declaration to a file path.
+/// Tries `{parent_dir}/{mod_name}.rs` first, then `{parent_dir}/{mod_name}/mod.rs`.
+///
+/// Returns `None` if neither path exists.
+#[must_use]
+pub fn resolve_module_path(parent_dir: &Path, mod_name: &str) -> Option<PathBuf> {'''
+
+[[tasks.TASK-8.changes]]
+file = "src/render.rs"
+before = '''/// Serialize the workspace map to a JSON string with 2-space indentation.
+pub fn render_json(map: &WorkspaceMap) -> serde_json::Result<String> {'''
+after = '''/// Serialize the workspace map to a JSON string with 2-space indentation.
+#[must_use]
+pub fn render_json(map: &WorkspaceMap) -> serde_json::Result<String> {'''
+
+[[tasks.TASK-8.changes]]
+file = "src/cross_refs.rs"
+before = '''// Helper: convert ItemKind to a short string for the TypeRef.kind field.
+impl crate::schema::PublicItem {
+    fn kind_to_string(&self) -> String {'''
+after = '''// Helper: convert ItemKind to a short string for the TypeRef.kind field.
+impl crate::schema::PublicItem {
+    #[must_use]
+    fn kind_to_string(&self) -> String {'''
+
+[[tasks.TASK-8.changes]]
+file = "src/lib.rs"
+before = '''    match p.strip_prefix(root) {
+        Ok(rel) => rel.to_string_lossy().to_string(),
+        Err(_) => path_str.to_string(),
+    }
+}'''
+after = '''    match p.strip_prefix(root) {
+        Ok(rel) => rel.to_string_lossy().to_string(),
+        Err(_) => path_str.to_string(),
+    }
+}'''
+
+[[tasks.TASK-8.changes]]
+file = "src/file_parser.rs"
+before = "/// Extract `pub use` re-exports. Results sorted by export_path.\n#[must_use]\npub fn extract_re_exports"
+after = "/// Extract `pub use` re-exports. Results sorted by `export_path`.\n#[must_use]\npub fn extract_re_exports"
+
+[[tasks.TASK-8.changes]]
+file = "src/file_parser.rs"
+before = "            let name = m.ident.as_ref().map(|i| i.to_string()).unwrap_or_default();"
+after = "            let name = m.ident.as_ref().map(ToString::to_string).unwrap_or_default();"
+
+[[tasks.TASK-8.changes]]
+file = "src/file_parser.rs"
+before = "fn flatten_use_tree(tree: &syn::UseTree, prefix: String, line: usize) -> Vec<Import> {"
+after = "fn flatten_use_tree(tree: &syn::UseTree, prefix: &str, line: usize) -> Vec<Import> {"
+
+[[tasks.TASK-8.changes]]
+file = "src/file_parser.rs"
+before = "                Some(flatten_use_tree(&u.tree, String::new(), line_of_item(item)))"
+after = "                Some(flatten_use_tree(&u.tree, \"\", line_of_item(item)))"
+
+[[tasks.TASK-8.changes]]
+file = "src/file_parser.rs"
+before = "            flatten_use_tree(&p.tree, new_prefix, line)"
+after = "            flatten_use_tree(&p.tree, &new_prefix, line)"
+
+[[tasks.TASK-8.changes]]
+file = "src/schema.rs"
+before = "/// Internal intermediate type consumed by module_tree.\n#[derive(Debug, Clone, Default)]\npub struct FileInfo"
+after = "/// Internal intermediate type consumed by `module_tree`.\n#[derive(Debug, Clone, Default)]\npub struct FileInfo"
+
+[[tasks.TASK-8.changes]]
+file = "src/lib.rs"
+before = "/// parsed, or the JSON output cannot be written.\npub fn run(config: Config) -> anyhow::Result<()> {"
+after = "/// parsed, or the JSON output cannot be written.\npub fn run(config: &Config) -> anyhow::Result<()> {"
+
+[[tasks.TASK-8.changes]]
+file = "src/main.rs"
+before = "    rust_workspace_map::run(config)"
+after = "    rust_workspace_map::run(&config)"
+
+[tasks.TASK-9]
+description = "Add unit tests for file_parser, module_tree, workspace, cargo_info, cross_refs, and render"
+type = "replace"
+acceptance = [
+    "cargo test -p rust-workspace-map",
+]
+
+[[tasks.TASK-9.changes]]
+file = "src/file_parser.rs"
+before = '''fn extract_re_exports_from_tree(
+    tree: &syn::UseTree,
+    import_path: String,
+    line: usize,
+) -> Vec<ReExport> {
+    match tree {
+        syn::UseTree::Path(p) => {
+            let new_import = if import_path.is_empty() {
+                p.ident.to_string()
+            } else {
+                format!("{}::{}", import_path, p.ident)
+            };
+            extract_re_exports_from_tree(&p.tree, new_import, line)
+        }
+        syn::UseTree::Name(n) => {
+            vec![ReExport {
+                import_path,
+                export_path: n.ident.to_string(),
+                line,
+            }]
+        }
+        syn::UseTree::Rename(r) => {
+            vec![ReExport {
+                import_path,
+                export_path: r.rename.to_string(),
+                line,
+            }]
+        }
+        syn::UseTree::Glob(_) => {
+            vec![ReExport {
+                import_path,
+                export_path: "*".to_string(),
+                line,
+            }]
+        }
+        syn::UseTree::Group(g) => g
+            .items
+            .iter()
+            .flat_map(|t| extract_re_exports_from_tree(t, import_path.clone(), line))
+            .collect(),
+    }
+}'''
+after = '''fn extract_re_exports_from_tree(
+    tree: &syn::UseTree,
+    import_path: String,
+    line: usize,
+) -> Vec<ReExport> {
+    match tree {
+        syn::UseTree::Path(p) => {
+            let new_import = if import_path.is_empty() {
+                p.ident.to_string()
+            } else {
+                format!("{}::{}", import_path, p.ident)
+            };
+            extract_re_exports_from_tree(&p.tree, new_import, line)
+        }
+        syn::UseTree::Name(n) => {
+            vec![ReExport {
+                import_path,
+                export_path: n.ident.to_string(),
+                line,
+            }]
+        }
+        syn::UseTree::Rename(r) => {
+            vec![ReExport {
+                import_path,
+                export_path: r.rename.to_string(),
+                line,
+            }]
+        }
+        syn::UseTree::Glob(_) => {
+            vec![ReExport {
+                import_path,
+                export_path: "*".to_string(),
+                line,
+            }]
+        }
+        syn::UseTree::Group(g) => g
+            .items
+            .iter()
+            .flat_map(|t| extract_re_exports_from_tree(t, import_path.clone(), line))
+            .collect(),
+    }
+}
+
+// ── Tests ───────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::schema::{Import, ReExport, SubmoduleDecl};
+    use std::path::PathBuf;
+
+    fn parse_source(src: &str) -> ParsedFile {
+        let tmp = std::env::temp_dir().join("parse_test.rs");
+        std::fs::write(&tmp, src).unwrap();
+        let result = parse_file(&tmp);
+        std::fs::remove_file(&tmp).ok();
+        result
+    }
+
+    #[test]
+    fn parse_file_returns_ast_for_valid_source() {
+        let src = "pub struct Foo { x: i32 }";
+        let result = parse_source(src);
+        assert!(result.parse_error.is_none());
+        assert_eq!(result.ast.items.len(), 1);
+    }
+
+    #[test]
+    fn parse_file_returns_error_for_invalid_source() {
+        let src = "pub struct { invalid rust }";
+        let result = parse_source(src);
+        assert!(result.parse_error.is_some());
+        let err = result.parse_error.as_ref().unwrap();
+        assert!(!err.message.is_empty());
+        assert!(err.line > 0);
+    }
+
+    #[test]
+    fn parse_file_returns_empty_for_empty_file() {
+        let result = parse_source("");
+        assert!(result.parse_error.is_none());
+        assert!(result.file_info.public_items.is_empty());
+    }
+
+    #[test]
+    fn extract_public_items_finds_struct_enum_trait_fn() {
+        let src = "pub struct Foo {} pub enum Bar { A, B } pub trait Baz {} pub fn hello() {}";
+        let result = parse_source(src);
+        let items = extract_public_items(&result.ast.items);
+        let names: Vec<_> = items.iter().map(|i| i.name.as_str()).collect();
+        assert!(names.contains(&"Foo"));
+        assert!(names.contains(&"Bar"));
+        assert!(names.contains(&"Baz"));
+        assert!(names.contains(&"hello"));
+    }
+
+    #[test]
+    fn extract_public_items_empty_for_no_public_items() {
+        let src = "struct Private {} fn private_fn() {}";
+        let result = parse_source(src);
+        let items = extract_public_items(&result.ast.items);
+        assert!(items.is_empty());
+    }
+
+    #[test]
+    fn extract_imports_finds_use_statements() {
+        let src = "use std::collections::BTreeMap;";
+        let result = parse_source(src);
+        let imports = extract_imports(&result.ast.items);
+        assert_eq!(imports.len(), 1);
+        assert_eq!(imports[0].path, "std::collections::BTreeMap");
+    }
+
+    #[test]
+    fn extract_re_exports_finds_pub_use() {
+        let src = "pub use crate::foo;";
+        let result = parse_source(src);
+        let re_exports = extract_re_exports(&result.ast.items);
+        assert_eq!(re_exports.len(), 1);
+        assert_eq!(re_exports[0].import_path, "crate::foo");
+        assert_eq!(re_exports[0].export_path, "foo");
+    }
+
+    #[test]
+    fn extract_re_exports_finds_rename() {
+        let src = "pub use crate::foo as bar;";
+        let result = parse_source(src);
+        let re_exports = extract_re_exports(&result.ast.items);
+        assert_eq!(re_exports.len(), 1);
+        assert_eq!(re_exports[0].import_path, "crate::foo as bar");
+        assert_eq!(re_exports[0].export_path, "bar");
+    }
+
+    #[test]
+    fn extract_submodules_finds_mod_declarations() {
+        let src = "mod foo; mod bar;";
+        let result = parse_source(src);
+        let subs = extract_submodules(&result.ast.items);
+        assert_eq!(subs.len(), 2);
+        let names: Vec<_> = subs.iter().map(|s| s.name.as_str()).collect();
+        assert!(names.contains(&"bar"));
+        assert!(names.contains(&"foo"));
+    }
+
+    #[test]
+    fn extract_submodules_marks_cfg_test() {
+        let src = "#[cfg(test)] mod inner;";
+        let result = parse_source(src);
+        let subs = extract_submodules(&result.ast.items);
+        assert_eq!(subs.len(), 1);
+        assert!(subs[0].is_test);
+    }
+
+    #[test]
+    fn extract_impls_finds_fn_type_const() {
+        let src = "impl MyType { pub fn foo(&self) {} pub type Alias = u32; pub const N: usize = 42; }";
+        let result = parse_source(src);
+        let impls = extract_impls(&result.ast.items);
+        assert_eq!(impls.len(), 1);
+        assert_eq!(impls[0].type_, "MyType");
+        assert_eq!(impls[0].items.len(), 3);
+    }
+
+    #[test]
+    fn build_parse_error_entry_constructs_error() {
+        let path = PathBuf::from("test.rs");
+        let err = SynParseError {
+            message: "expected `;`".to_string(),
+            line: 5,
+        };
+        let entry = build_parse_error_entry(&path, &err);
+        assert_eq!(entry.file, "test.rs");
+        assert_eq!(entry.line, 5);
+        assert_eq!(entry.kind, "syn_parse_error");
+        assert_eq!(entry.severity, ErrorSeverity::Error);
+    }
+}'''
+
+[[tasks.TASK-9.changes]]
+file = "src/module_tree.rs"
+before = '''fn process_module_info(
+    module_path: &str,
+    file_path: &Path,
+    visibility: &str,
+    file_info: &FileInfo,
+    items: &[syn::Item],
+    _parent_dir: &Path,
+    visited: &mut HashSet<PathBuf>,
+    errors: &mut Vec<crate::schema::ErrorEntry>,
+) -> (Vec<ModuleInfo>, Vec<crate::schema::ErrorEntry>) {
+    let mut modules = vec![build_module_info(
+        module_path,
+        file_path,
+        visibility,
+        &file_info.public_items,
+        &file_info.imports,
+        &file_info.re_exports,
+        &file_info.submodules,
+    )];
+
+    for sub in &file_info.submodules {
+        if sub.is_test {
+            continue;
+        }
+        let child_path = format!("{}::{}", module_path, sub.name);
+        let child_dir = file_path.parent().unwrap_or(file_path);
+        let (child_modules, child_errors) = process_submodule(
+            &child_path,
+            &sub.name,
+            items,
+            child_dir,
+            file_path,
+            visited,
+        );
+        errors.extend(child_errors);
+        modules.extend(child_modules);
+    }
+
+    (modules, errors.clone())
+}'''
+after = '''fn process_module_info(
+    module_path: &str,
+    file_path: &Path,
+    visibility: &str,
+    file_info: &FileInfo,
+    items: &[syn::Item],
+    _parent_dir: &Path,
+    visited: &mut HashSet<PathBuf>,
+    errors: &mut Vec<crate::schema::ErrorEntry>,
+) -> (Vec<ModuleInfo>, Vec<crate::schema::ErrorEntry>) {
+    let mut modules = vec![build_module_info(
+        module_path,
+        file_path,
+        visibility,
+        &file_info.public_items,
+        &file_info.imports,
+        &file_info.re_exports,
+        &file_info.submodules,
+    )];
+
+    for sub in &file_info.submodules {
+        if sub.is_test {
+            continue;
+        }
+        let child_path = format!("{}::{}", module_path, sub.name);
+        let child_dir = file_path.parent().unwrap_or(file_path);
+        let (child_modules, child_errors) = process_submodule(
+            &child_path,
+            &sub.name,
+            items,
+            child_dir,
+            file_path,
+            visited,
+        );
+        errors.extend(child_errors);
+        modules.extend(child_modules);
+    }
+
+    (modules, errors.clone())
+}
+
+// ── Tests ───────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::schema::ErrorEntry;
+
+    #[test]
+    fn resolve_module_path_finds_rs_file() {
+        let tmp = std::env::temp_dir().join("resolve_test");
+        let _ = std::fs::create_dir_all(&tmp);
+        let mod_file = tmp.join("foo.rs");
+        std::fs::write(&mod_file, "").ok();
+        let result = resolve_module_path(&tmp, "foo");
+        assert_eq!(result, Some(mod_file));
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn resolve_module_path_finds_mod_rs() {
+        let tmp = std::env::temp_dir().join("resolve_test2");
+        let _ = std::fs::create_dir_all(&tmp);
+        let mod_dir = tmp.join("bar");
+        let _ = std::fs::create_dir_all(&mod_dir);
+        let mod_rs = mod_dir.join("mod.rs");
+        std::fs::write(&mod_rs, "").ok();
+        let result = resolve_module_path(&tmp, "bar");
+        assert_eq!(result, Some(mod_rs));
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn resolve_module_path_returns_none_for_missing() {
+        let tmp = std::env::temp_dir().join("resolve_test3");
+        let _ = std::fs::create_dir_all(&tmp);
+        let result = resolve_module_path(&tmp, "nonexistent");
+        assert!(result.is_none());
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn build_module_tree_returns_empty_for_nonexistent() {
+        let tmp = std::env::temp_dir().join("bmt_test");
+        let _ = std::fs::create_dir_all(&tmp);
+        let (modules, errors) = build_module_tree(&tmp, "test");
+        assert!(modules.is_empty());
+        assert!(!errors.is_empty());
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+}'''
+
+[[tasks.TASK-9.changes]]
+file = "src/workspace.rs"
+before = '''    result.sort();
+    result.dedup();
+    Ok(result)
+}
+
+/// For a crate directory, determine its entry-point file(s).'''
+after = '''    result.sort();
+    result.dedup();
+    Ok(result)
+}
+
+// ── Tests ───────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+
+    fn write_cargo_toml(dir: &std::path::Path, content: &str) {
+        let mut f = std::fs::File::create(dir.join("Cargo.toml")).unwrap();
+        f.write_all(content.as_bytes()).unwrap();
+    }
+
+    fn setup_crate(dir: &std::path::Path) {
+        let src = dir.join("src");
+        std::fs::create_dir_all(&src).unwrap();
+        std::fs::write(src.join("lib.rs"), "").unwrap();
+    }
+
+    #[test]
+    fn find_workspace_root_finds_cargo_toml() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("subdir").join("nested");
+        std::fs::create_dir_all(&path).unwrap();
+        write_cargo_toml(tmp.path(), "[workspace]");
+        let result = find_workspace_root(&path).unwrap();
+        assert_eq!(result, tmp.path());
+    }
+
+    #[test]
+    fn enumerate_members_returns_members() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_cargo_toml(tmp.path(), r#"
+[workspace]
+members = ["crate_a", "crate_b"]
+"#);
+        setup_crate(tmp.path().join("crate_a").as_path());
+        setup_crate(tmp.path().join("crate_b").as_path());
+        let members = enumerate_members(tmp.path()).unwrap();
+        assert_eq!(members.len(), 2);
+    }
+
+    #[test]
+    fn enumerate_members_returns_err_for_missing_workspace() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_cargo_toml(tmp.path(), "[dependencies]\nfoo = \"1\"");
+        let result = enumerate_members(tmp.path());
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            Error::MissingWorkspaceSection => {},
+            other => panic!("expected MissingWorkspaceSection, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn enumerate_members_applies_exclude() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_cargo_toml(tmp.path(), r#"
+[workspace]
+members = ["a", "b", "c"]
+exclude = ["b"]
+"#);
+        setup_crate(tmp.path().join("a").as_path());
+        setup_crate(tmp.path().join("b").as_path());
+        setup_crate(tmp.path().join("c").as_path());
+        let members = enumerate_members(tmp.path()).unwrap();
+        let names: Vec<_> = members.iter().map(|p| p.file_name().unwrap().to_string_lossy()).collect();
+        assert!(names.contains(&"a".as_ref()));
+        assert!(!names.contains(&"b".as_ref()));
+        assert!(names.contains(&"c".as_ref()));
+    }
+
+    #[test]
+    fn resolve_crate_roots_detects_lib() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(tmp.path().join("src")).unwrap();
+        std::fs::write(tmp.path().join("src").join("lib.rs"), "").unwrap();
+        let roots = resolve_crate_roots(tmp.path());
+        assert_eq!(roots.len(), 1);
+        assert_eq!(roots[0].1, CrateType::Lib);
+    }
+
+    #[test]
+    fn resolve_crate_roots_detects_bin() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(tmp.path().join("src")).unwrap();
+        std::fs::write(tmp.path().join("src").join("main.rs"), "").unwrap();
+        let roots = resolve_crate_roots(tmp.path());
+        assert_eq!(roots.len(), 1);
+        assert_eq!(roots[0].1, CrateType::Bin);
+    }
+}'''
+
+[[tasks.TASK-9.changes]]
+file = "src/cargo_info.rs"
+before = '''    Ok((package, deps))
+}'''
+after = '''    Ok((package, deps))
+}
+
+// ── Tests ───────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+
+    fn write_cargo_toml(dir: &std::path::Path, content: &str) {
+        let mut f = std::fs::File::create(dir.join("Cargo.toml")).unwrap();
+        f.write_all(content.as_bytes()).unwrap();
+    }
+
+    #[test]
+    fn parse_cargo_toml_parses_minimal() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_cargo_toml(tmp.path(), r#"
+[package]
+name = "test-pkg"
+version = "1.0.0"
+edition = "2021"
+"#);
+        let (pkg, _deps) = parse_cargo_toml(tmp.path().join("Cargo.toml").as_path()).unwrap();
+        assert_eq!(pkg.name, "test-pkg");
+        assert_eq!(pkg.version, "1.0.0");
+        assert_eq!(pkg.edition, "2021");
+    }
+
+    #[test]
+    fn parse_cargo_toml_uses_defaults_for_missing_package() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_cargo_toml(tmp.path(), "");
+        let (pkg, _deps) = parse_cargo_toml(tmp.path().join("Cargo.toml").as_path()).unwrap();
+        assert_eq!(pkg.name, "unknown");
+        assert_eq!(pkg.edition, "2021");
+    }
+
+    #[test]
+    fn parse_cargo_toml_distinguishes_deps() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_cargo_toml(tmp.path(), r#"
+[package]
+name = "test-pkg"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+foo = "1"
+bar = { workspace = true }
+
+[dev-dependencies]
+baz = "2"
+qux = { workspace = true }
+"#);
+        let (_, deps) = parse_cargo_toml(tmp.path().join("Cargo.toml").as_path()).unwrap();
+        assert_eq!(deps.normal, vec!["foo"]);
+        assert_eq!(deps.dev, vec!["baz"]);
+        assert!(deps.workspace_members.contains(&"bar".to_string()));
+        assert!(deps.workspace_members.contains(&"qux".to_string()));
+    }
+}'''
+
+[[tasks.TASK-9.changes]]
+file = "src/cross_refs.rs"
+before = '''    CrossReferences { types: types_map }
+}
+
+// Helper: convert ItemKind to a short string for the TypeRef.kind field.'''
+after = '''    CrossReferences { types: types_map }
+}
+
+// ── Tests ───────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::schema::{ModuleInfo, PublicItem, SubmoduleDecl};
+
+    fn make_crate(name: &str, items: Vec<(String, ItemKind)>) -> CrateInfo {
+        let public_items: Vec<PublicItem> = items
+            .into_iter()
+            .map(|(n, k)| {
+                PublicItem::builder()
+                    .kind(k)
+                    .name(n)
+                    .file(String::new())
+                    .line(1)
+                    .visibility("pub".to_string())
+                    .generics(String::new())
+                    .attrs(Default::default())
+                    .build()
+            })
+            .collect();
+        let module = ModuleInfo::builder()
+            .path("".to_string())
+            .file(String::new())
+            .visibility("pub".to_string())
+            .public_items(public_items)
+            .build();
+        CrateInfo::builder()
+            .name(name.to_string())
+            .root(String::new())
+            .package(
+                schema::PackageInfo::builder()
+                    .name(name.to_string())
+                    .version("0.1.0".to_string())
+                    .edition("2021".to_string())
+                    .crate_type(schema::CrateType::Lib)
+                    .build(),
+            )
+            .modules(vec![module])
+            .deps(Default::default())
+            .build()
+    }
+
+    #[test]
+    fn compute_finds_cross_crate_import() {
+        let mut crates = vec![
+            make_crate("core", vec![
+                ("Task".to_string(), ItemKind::Struct),
+            ]),
+            make_crate("engine", vec![]),
+        ];
+        // Manually add an import in engine that references core::Task
+        let engine_module = &mut crates[1].modules[0];
+        engine_module.imports.push(Import {
+            path: "core::Task".to_string(),
+            line: 1,
+        });
+        let refs = compute(&mut crates);
+        // Task should be in cross-references
+        assert!(refs.types.contains_key("Task"));
+        let task_ref = &refs.types["Task"];
+        assert_eq!(task_ref.crate_name, "core");
+        // engine should have a cross_crate_import
+        assert_eq!(crates[1].cross_crate_imports.len(), 1);
+        assert_eq!(crates[1].cross_crate_imports[0].target_crate, "core");
+    }
+
+    #[test]
+    fn compute_empty_for_no_cross_references() {
+        let crates = vec![
+            make_crate("a", vec![("Foo".to_string(), ItemKind::Struct)]),
+            make_crate("b", vec![("Bar".to_string(), ItemKind::Struct)]),
+        ];
+        let mut crates_mut = crates;
+        let refs = compute(&mut crates_mut);
+        // No cross references since no crate imports from another
+        assert!(refs.types.is_empty() || refs.types.values().all(|t| t.imported_by.is_empty()));
+    }
+}
+
+// Helper: convert ItemKind to a short string for the TypeRef.kind field.'''
+
+[[tasks.TASK-9.changes]]
+file = "src/render.rs"
+before = '''use crate::schema::WorkspaceMap;
+use std::io::Write;
+
+/// Serialize the workspace map to a JSON string with 2-space indentation.
+#[must_use]
+pub fn render_json(map: &WorkspaceMap) -> serde_json::Result<String> {
+    serde_json::to_string_pretty(map)
+}
+
+/// Serialize the workspace map to the given writer.
+pub fn render_to_writer(map: &WorkspaceMap, writer: impl Write) -> serde_json::Result<()> {
+    serde_json::to_writer_pretty(writer, map)
+}
+'''
+after = '''use crate::schema::WorkspaceMap;
+use std::io::Write;
+
+/// Serialize the workspace map to a JSON string with 2-space indentation.
+#[must_use]
+pub fn render_json(map: &WorkspaceMap) -> serde_json::Result<String> {
+    serde_json::to_string_pretty(map)
+}
+
+/// Serialize the workspace map to the given writer.
+pub fn render_to_writer(map: &WorkspaceMap, writer: impl Write) -> serde_json::Result<()> {
+    serde_json::to_writer_pretty(writer, map)
+}
+
+// ── Tests ───────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::schema::{
+        CrateInfo, CrateType, CrossReferences, DepInfo, ModuleInfo, PackageInfo,
+        WorkspaceInfo, WorkspaceMap,
+    };
+
+    fn make_minimal_map() -> WorkspaceMap {
+        WorkspaceMap::builder()
+            .workspace(WorkspaceInfo::builder()
+                .root(".".to_string())
+                .workspace_name("test".to_string())
+                .build())
+            .crates(vec![
+                CrateInfo::builder()
+                    .name("test-crate".to_string())
+                    .root(".".to_string())
+                    .package(PackageInfo::builder()
+                        .name("test-crate".to_string())
+                        .version("0.1.0".to_string())
+                        .edition("2021".to_string())
+                        .crate_type(CrateType::Lib)
+                        .build())
+                    .modules(vec![ModuleInfo::builder()
+                        .path("".to_string())
+                        .file("src/lib.rs".to_string())
+                        .visibility("pub".to_string())
+                        .build()])
+                    .deps(DepInfo::default())
+                    .build(),
+            ])
+            .cross_references(CrossReferences::default())
+            .workspace_root(std::path::PathBuf::from("."))
+            .build()
+    }
+
+    #[test]
+    fn render_json_produces_valid_json() {
+        let map = make_minimal_map();
+        let json = render_json(&map).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed["workspace"]["root"], ".");
+        assert_eq!(parsed["crates"].as_array().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn render_json_skips_empty_errors() {
+        let map = make_minimal_map();
+        let json = render_json(&map).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        // errors field should be absent (skip_serializing_if)
+        assert!(parsed.get("errors").is_none());
+    }
+
+    #[test]
+    fn render_to_writer_matches_render_json() {
+        let map = make_minimal_map();
+        let json = render_json(&map).unwrap();
+
+        let mut buf = Vec::new();
+        render_to_writer(&map, &mut buf).unwrap();
+        let from_writer = String::from_utf8(buf).unwrap();
+
+        assert_eq!(json, from_writer);
+    }
+}
+'''
+
+[tasks.TASK-10]
+description = "Expand integration tests from 3 to 10 covering error cases, workspace patterns, and output"
+type = "replace"
+acceptance = [
+    "cargo test -p rust-workspace-map --test integration_test",
+]
+
+[[tasks.TASK-10.changes]]
+file = "tests/integration_test.rs"
+before = '''#[test]
+fn test_missing_path_exits_nonzero() {
+    let bin = binary_path();
+    let output = Command::new(&bin)
+        .arg("/tmp/nonexistent-path-12345")
+        .output()
+        .expect("failed to execute binary");
+
+    assert!(
+        !output.status.success(),
+        "should exit non-zero for invalid path"
+    );
+}
+'''
+after = '''#[test]
+fn test_missing_path_exits_nonzero() {
+    let bin = binary_path();
+    let output = Command::new(&bin)
+        .arg("/tmp/nonexistent-path-12345")
+        .output()
+        .expect("failed to execute binary");
+
+    assert!(
+        !output.status.success(),
+        "should exit non-zero for invalid path"
+    );
+}
+
+fn run_binary(path: &str) -> std::process::Output {
+    Command::new(&binary_path())
+        .arg(path)
+        .output()
+        .expect("failed to execute binary")
+}
+
+fn parse_output(output: &std::process::Output) -> serde_json::Value {
+    serde_json::from_str(&String::from_utf8_lossy(&output.stdout)).unwrap()
+}
+
+fn write_cargo_toml(dir: &std::path::Path, content: &str) {
+    let mut f = std::fs::File::create(dir.join("Cargo.toml")).unwrap();
+    use std::io::Write;
+    f.write_all(content.as_bytes()).unwrap();
+}
+
+fn setup_crate(dir: &std::path::Path, lib_content: &str) {
+    let src = dir.join("src");
+    std::fs::create_dir_all(&src).unwrap();
+    std::fs::write(src.join("lib.rs"), lib_content).unwrap();
+}
+
+#[test]
+fn test_parse_failure_error_entry() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+
+    // Create workspace Cargo.toml
+    write_cargo_toml(root, r#"
+[workspace]
+members = ["good_crate", "bad_crate"]
+"#);
+
+    // Good crate with valid Rust
+    setup_crate(&root.join("good_crate"), "pub struct Good {}");
+
+    // Bad crate with invalid Rust syntax
+    setup_crate(&root.join("bad_crate"), "pub struct { invalid rust syntax");
+
+    let output = run_binary(root.to_str().unwrap());
+    assert!(output.status.success());
+
+    let json = parse_output(&output);
+    let errors: Vec<&serde_json::Value> = extract_array(&json, "errors");
+
+    let parse_errors: Vec<_> = errors.iter()
+        .filter(|e| {
+            e["kind"].as_str().unwrap() == "syn_parse_error"
+        })
+        .collect();
+
+    assert!(!parse_errors.is_empty(), "should have parse error entries");
+    assert_eq!(parse_errors[0]["severity"].as_str().unwrap(), "error");
+}
+
+#[test]
+fn test_missing_workspace_section() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+
+    // Cargo.toml without [workspace] section
+    write_cargo_toml(root, r#"
+[package]
+name = "standalone"
+version = "0.1.0"
+edition = "2021"
+"#);
+
+    let output = run_binary(root.to_str().unwrap());
+
+    // Should exit non-zero because workspace is missing
+    assert!(
+        !output.status.success(),
+        "should exit non-zero for missing workspace section"
+    );
+}
+
+#[test]
+fn test_glob_member_patterns() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+
+    write_cargo_toml(root, r#"
+[workspace]
+members = ["crates/*"]
+"#);
+
+    for name in &["alpha", "beta", "gamma"] {
+        setup_crate(&root.join("crates").join(name), format!("pub struct {name} {{}}").as_str());
+    }
+
+    let output = run_binary(root.to_str().unwrap());
+    assert!(output.status.success());
+
+    let json = parse_output(&output);
+    let crates = extract_array(&json, "crates");
+    let names: Vec<&str> = crates.iter()
+        .map(|c| c["name"].as_str().unwrap())
+        .collect();
+
+    assert!(names.contains(&"alpha"));
+    assert!(names.contains(&"beta"));
+    assert!(names.contains(&"gamma"));
+    assert_eq!(names.len(), 3);
+}
+
+#[test]
+fn test_workspace_with_exclude() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+
+    write_cargo_toml(root, r#"
+[workspace]
+members = ["a", "b", "c"]
+exclude = ["b"]
+"#);
+
+    setup_crate(&root.join("a"), "pub struct A {}");
+    setup_crate(&root.join("b"), "pub struct B {}");
+    setup_crate(&root.join("c"), "pub struct C {}");
+
+    let output = run_binary(root.to_str().unwrap());
+    assert!(output.status.success());
+
+    let json = parse_output(&output);
+    let crates = extract_array(&json, "crates");
+    let names: Vec<&str> = crates.iter()
+        .map(|c| c["name"].as_str().unwrap())
+        .collect();
+
+    assert!(names.contains(&"a"));
+    assert!(!names.contains(&"b"));
+    assert!(names.contains(&"c"));
+}
+
+#[test]
+fn test_deeply_nested_modules() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+
+    write_cargo_toml(root, r#"
+[workspace]
+members = ["."]
+
+[package]
+name = "nested"
+version = "0.1.0"
+edition = "2021"
+"#);
+
+    let src = root.join("src");
+    let foo = src.join("foo");
+    let bar = foo.join("bar");
+    std::fs::create_dir_all(&bar).unwrap();
+
+    // lib.rs declares mod foo
+    std::fs::write(src.join("lib.rs"), "mod foo;").unwrap();
+    // foo.rs declares mod bar
+    std::fs::write(foo.join("foo.rs"), "mod bar;").unwrap();
+    // bar/baz.rs declares mod baz
+    std::fs::write(bar.join("bar.rs"), "mod baz;").unwrap();
+    // baz.rs with a struct
+    std::fs::write(bar.join("baz.rs"), "pub struct Deep {}").unwrap();
+
+    let output = run_binary(root.to_str().unwrap());
+    assert!(output.status.success());
+
+    let json = parse_output(&output);
+    let crates = extract_array(&json, "crates");
+    let nested_crate = crates.iter().find(|c| c["name"].as_str().unwrap() == "nested").unwrap();
+
+    let module_paths: Vec<&str> = extract_array(&nested_crate["modules"], "path")
+        .iter()
+        .map(|m| m.as_str().unwrap())
+        .collect();
+
+    assert!(module_paths.iter().any(|p| *p == "nested"));
+    assert!(module_paths.iter().any(|p| *p == "nested::foo"));
+    assert!(module_paths.iter().any(|p| *p == "nested::foo::bar"));
+    assert!(module_paths.iter().any(|p| *p == "nested::foo::bar::baz"));
+}
+
+#[test]
+fn test_reexport_chains() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+
+    write_cargo_toml(root, r#"
+[workspace]
+members = ["."]
+
+[package]
+name = "reexporter"
+version = "0.1.0"
+edition = "2021"
+"#);
+
+    let src = root.join("src");
+    std::fs::create_dir_all(&src).unwrap();
+
+    // lib.rs with re-export chain
+    std::fs::write(src.join("lib.rs"), "
+mod inner {
+    pub struct Secret;
+}
+pub use inner::Secret;
+").unwrap();
+
+    let output = run_binary(root.to_str().unwrap());
+    assert!(output.status.success());
+
+    let json = parse_output(&output);
+    let crates = extract_array(&json, "crates");
+    let reexporter = crates.iter().find(|c| c["name"].as_str().unwrap() == "reexporter").unwrap();
+
+    let re_exports: Vec<&serde_json::Value> = extract_array(&reexporter["modules"])
+        .iter()
+        .flat_map(|m| extract_array(m, "reExports"))
+        .collect();
+
+    let has_secret = re_exports.iter().any(|re| {
+        re["importPath"].as_str().unwrap().contains("Secret")
+    });
+    assert!(has_secret, "should have re-export for Secret");
+}
+
+#[test]
+fn test_output_via_flag() {
+    let tmp = tempfile::tempdir().unwrap();
+    let fixture = std::path::Path::new("tests/fixtures/sample-workspace");
+    let output_path = tmp.path().join("output.json");
+
+    // Run with -o flag
+    let output1 = Command::new(&binary_path())
+        .arg(fixture)
+        .arg("-o")
+        .arg(output_path.clone())
+        .output()
+        .expect("failed to execute binary");
+    assert!(output1.status.success());
+
+    // Run without -o, capture stdout
+    let output2 = Command::new(&binary_path())
+        .arg(fixture)
+        .output()
+        .expect("failed to execute binary");
+    assert!(output2.status.success());
+
+    // Compare file content with stdout
+    let file_content = std::fs::read_to_string(&output_path).unwrap();
+    let stdout_content = String::from_utf8_lossy(&output2.stdout);
+    assert_eq!(
+        file_content.trim(),
+        stdout_content.trim(),
+        "file output should match stdout"
+    );
+}
+'''

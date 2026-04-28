@@ -1,49 +1,106 @@
 use crate::schema::{
-    Error, FileInfo, ImplInfo, ImplItem, ImplItemKind, Import, ItemAttrs, ItemKind, PublicItem,
-    ReExport, Result, SubmoduleDecl,
+    ErrorEntry, ErrorSeverity, FileInfo, ImplInfo, ImplItem, ImplItemKind, Import,
+    ItemAttrs, ItemKind, PublicItem, ReExport, SubmoduleDecl,
 };
 use std::path::Path;
 
+// ── Internal parse result types ────────────────────────────────────────
+
+/// Result of parsing a Rust source file.
+///
+/// Unlike `Result<T, Error>`, this type always succeeds — parse
+/// failures are reported as data, not as errors, so the caller
+/// can continue processing other files. The caller constructs
+/// `ErrorEntry` values from `SynParseError` when needed.
+pub struct ParsedFile {
+    pub ast: syn::File,
+    pub file_info: FileInfo,
+    pub parse_error: Option<SynParseError>,
+}
+
+/// Structured information about a parse failure.
+pub struct SynParseError {
+    pub message: String,
+    pub line: usize,
+}
+
 // ── parse_file ──────────────────────────────────────────────────────────
 
-/// Read and parse a Rust source file. Returns the raw `syn::File` AST (needed
-/// by `module_tree` for inline module item extraction) and the extracted
-/// `FileInfo`. On parse failure, warns to stderr and returns empty results.
-pub fn parse_file(path: &Path) -> Result<(syn::File, FileInfo)> {
-    let content = std::fs::read_to_string(path).map_err(|source| Error::FileRead {
-        path: path.to_path_buf(),
-        source,
-    })?;
-
-    let file = match syn::parse_file(&content) {
-        Ok(f) => f,
-        Err(e) => {
-            eprintln!("warning: failed to parse {}: {}", path.display(), e);
-            let empty = syn::File {
-                shebang: None,
-                attrs: vec![],
-                items: vec![],
+/// Read and parse a Rust source file.
+///
+/// On parse failure, returns the original file content and a
+/// `SynParseError` alongside an empty `FileInfo`. Callers use the
+/// error to construct an `ErrorEntry`.
+#[must_use]
+pub fn parse_file(path: &Path) -> ParsedFile {
+    let content = match std::fs::read_to_string(path) {
+        Ok(c) => c,
+        Err(source) => {
+            let err = SynParseError {
+                message: source.to_string(),
+                line: 0,
             };
-            let info = FileInfo::default();
-            return Ok((empty, info));
+            return ParsedFile {
+                ast: syn::File {
+                    shebang: None,
+                    attrs: vec![],
+                    items: vec![],
+                },
+                file_info: FileInfo::default(),
+                parse_error: Some(err),
+            };
         }
     };
 
-    let info = FileInfo {
-        public_items: extract_public_items(&file.items),
-        imports: extract_imports(&file.items),
-        re_exports: extract_re_exports(&file.items),
-        submodules: extract_submodules(&file.items),
-        impls: extract_impls(&file.items),
-    };
+    match syn::parse_file(&content) {
+        Ok(file) => {
+            let file_info = FileInfo {
+                public_items: extract_public_items(&file.items),
+                imports: extract_imports(&file.items),
+                re_exports: extract_re_exports(&file.items),
+                submodules: extract_submodules(&file.items),
+                impls: extract_impls(&file.items),
+            };
+            ParsedFile {
+                ast: file,
+                file_info,
+                parse_error: None,
+            }
+        },
+        Err(e) => {
+            let line = e.span().start().line;
+            let err = SynParseError {
+                message: e.to_string(),
+                line,
+            };
+            ParsedFile {
+                ast: syn::File {
+                    shebang: None,
+                    attrs: vec![],
+                    items: vec![],
+                },
+                file_info: FileInfo::default(),
+                parse_error: Some(err),
+            }
+        }
+    }
+}
 
-    Ok((file, info))
+pub(crate) fn build_parse_error_entry(path: &Path, err: &SynParseError) -> ErrorEntry {
+    ErrorEntry::builder()
+        .file(path.to_string_lossy().to_string())
+        .line(err.line)
+        .message(err.message.clone())
+        .severity(ErrorSeverity::Error)
+        .kind("syn_parse_error".to_string())
+        .build()
 }
 
 // ── extract_public_items ────────────────────────────────────────────────
 
 /// Extract all items with any form of `pub` visibility (excluding `Inherited`).
 /// Results are sorted by name then line for deterministic output.
+#[must_use]
 pub fn extract_public_items(items: &[syn::Item]) -> Vec<PublicItem> {
     let mut result: Vec<PublicItem> = items
         .iter()
@@ -58,12 +115,13 @@ pub fn extract_public_items(items: &[syn::Item]) -> Vec<PublicItem> {
 
 /// Extract all `use` statements. Braced imports are expanded to individual
 /// entries. Results sorted by path for determinism.
+#[must_use]
 pub fn extract_imports(items: &[syn::Item]) -> Vec<Import> {
     let mut result: Vec<Import> = items
         .iter()
         .filter_map(|item| {
             if let syn::Item::Use(u) = item {
-                Some(flatten_use_tree(&u.tree, String::new(), line_of_item(item)))
+                Some(flatten_use_tree(&u.tree, "", line_of_item(item)))
             } else {
                 None
             }
@@ -76,7 +134,8 @@ pub fn extract_imports(items: &[syn::Item]) -> Vec<Import> {
 
 // ── extract_re_exports ──────────────────────────────────────────────────
 
-/// Extract `pub use` re-exports. Results sorted by export_path.
+/// Extract `pub use` re-exports. Results sorted by `export_path`.
+#[must_use]
 pub fn extract_re_exports(items: &[syn::Item]) -> Vec<ReExport> {
     let mut result: Vec<ReExport> = items
         .iter()
@@ -105,6 +164,7 @@ pub fn extract_re_exports(items: &[syn::Item]) -> Vec<ReExport> {
 
 /// Extract `mod` declarations. Detects `#[cfg(test)]` via literal token
 /// matching. Results sorted by name.
+#[must_use]
 pub fn extract_submodules(items: &[syn::Item]) -> Vec<SubmoduleDecl> {
     let mut result: Vec<SubmoduleDecl> = items
         .iter()
@@ -138,6 +198,7 @@ pub fn extract_submodules(items: &[syn::Item]) -> Vec<SubmoduleDecl> {
 
 /// Extract `impl` blocks. Each `ImplInfo` records the target type name and
 /// the impl items (fn, type, const).
+#[must_use]
 pub fn extract_impls(items: &[syn::Item]) -> Vec<ImplInfo> {
     items
         .iter()
@@ -243,7 +304,7 @@ fn vis_to_string(vis: &syn::Visibility) -> String {
             if path.is_empty() {
                 "pub(restricted)".to_string()
             } else {
-                format!("pub({})", path)
+                format!("pub({path})")
             }
         }
         syn::Visibility::Inherited => "private".to_string(),
@@ -320,11 +381,11 @@ fn type_to_string(ty: &syn::Type) -> String {
         syn::Type::BareFn(_) => "fn(...)".to_string(),
         syn::Type::Never(_) => "!".to_string(),
         syn::Type::TraitObject(to) => {
-            let bounds: Vec<String> = to.bounds.iter().map(|b| quote_bound(b)).collect();
+            let bounds: Vec<String> = to.bounds.iter().map(quote_bound).collect();
             bounds.join(" + ")
         }
         syn::Type::ImplTrait(ti) => {
-            let bounds: Vec<String> = ti.bounds.iter().map(|b| quote_bound(b)).collect();
+            let bounds: Vec<String> = ti.bounds.iter().map(quote_bound).collect();
             format!("impl {}", bounds.join(" + "))
         }
         syn::Type::Paren(tp) => format!("({})", type_to_string(&tp.elem)),
@@ -408,14 +469,12 @@ fn extract_attrs(attrs: &[syn::Attribute]) -> ItemAttrs {
                     .collect();
                 derive.extend(derives);
             }
-        } else if attr.path().is_ident("doc") {
-            if let syn::Meta::NameValue(nv) = &attr.meta {
-                if let syn::Expr::Lit(el) = &nv.value {
-                    if let syn::Lit::Str(ls) = &el.lit {
-                        doc.push(ls.value());
-                    }
-                }
-            }
+        } else if attr.path().is_ident("doc")
+            && let syn::Meta::NameValue(nv) = &attr.meta
+            && let syn::Expr::Lit(el) = &nv.value
+            && let syn::Lit::Str(ls) = &el.lit
+        {
+            doc.push(ls.value());
         }
     }
 
@@ -466,7 +525,7 @@ fn into_public_item(item: &syn::Item) -> Option<PublicItem> {
             &t.attrs,
         ),
         syn::Item::Macro(m) => {
-            let name = m.ident.as_ref().map(|i| i.to_string()).unwrap_or_default();
+            let name = m.ident.as_ref().map(ToString::to_string).unwrap_or_default();
             if name.is_empty() {
                 return None;
             }
@@ -500,7 +559,7 @@ fn into_public_item(item: &syn::Item) -> Option<PublicItem> {
     })
 }
 
-fn flatten_use_tree(tree: &syn::UseTree, prefix: String, line: usize) -> Vec<Import> {
+fn flatten_use_tree(tree: &syn::UseTree, prefix: &str, line: usize) -> Vec<Import> {
     match tree {
         syn::UseTree::Path(p) => {
             let new_prefix = if prefix.is_empty() {
@@ -508,7 +567,7 @@ fn flatten_use_tree(tree: &syn::UseTree, prefix: String, line: usize) -> Vec<Imp
             } else {
                 format!("{}::{}", prefix, p.ident)
             };
-            flatten_use_tree(&p.tree, new_prefix, line)
+            flatten_use_tree(&p.tree, &new_prefix, line)
         }
         syn::UseTree::Name(n) => {
             let path = if prefix.is_empty() {
@@ -530,14 +589,14 @@ fn flatten_use_tree(tree: &syn::UseTree, prefix: String, line: usize) -> Vec<Imp
             let path = if prefix.is_empty() {
                 "*".to_string()
             } else {
-                format!("{}::*", prefix)
+                format!("{prefix}::*")
             };
             vec![Import { path, line }]
         }
         syn::UseTree::Group(g) => g
             .items
             .iter()
-            .flat_map(|t| flatten_use_tree(t, prefix.clone(), line))
+            .flat_map(|t| flatten_use_tree(t, prefix, line))
             .collect(),
     }
 }
@@ -557,15 +616,25 @@ fn extract_re_exports_from_tree(
             extract_re_exports_from_tree(&p.tree, new_import, line)
         }
         syn::UseTree::Name(n) => {
+            let full_path = if import_path.is_empty() {
+                n.ident.to_string()
+            } else {
+                format!("{}::{}", import_path, n.ident)
+            };
             vec![ReExport {
-                import_path,
+                import_path: full_path,
                 export_path: n.ident.to_string(),
                 line,
             }]
         }
         syn::UseTree::Rename(r) => {
+            let full_path = if import_path.is_empty() {
+                format!("{} as {}", r.ident, r.rename)
+            } else {
+                format!("{}::{} as {}", import_path, r.ident, r.rename)
+            };
             vec![ReExport {
-                import_path,
+                import_path: full_path,
                 export_path: r.rename.to_string(),
                 line,
             }]
@@ -582,5 +651,142 @@ fn extract_re_exports_from_tree(
             .iter()
             .flat_map(|t| extract_re_exports_from_tree(t, import_path.clone(), line))
             .collect(),
+    }
+}
+
+// ── Tests ───────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    fn parse_source(src: &str) -> ParsedFile {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+        let id = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let tmp = std::env::temp_dir().join(format!("parse_test_{id}.rs"));
+        std::fs::write(&tmp, src).unwrap();
+        let result = parse_file(&tmp);
+        std::fs::remove_file(&tmp).ok();
+        result
+    }
+
+    #[test]
+    fn parse_file_returns_ast_for_valid_source() {
+        let src = "pub struct Foo { x: i32 }";
+        let result = parse_source(src);
+        assert!(result.parse_error.is_none());
+        assert_eq!(result.ast.items.len(), 1);
+    }
+
+    #[test]
+    fn parse_file_returns_error_for_invalid_source() {
+        let src = "pub struct { invalid rust }";
+        let result = parse_source(src);
+        assert!(result.parse_error.is_some());
+        let err = result.parse_error.as_ref().unwrap();
+        assert!(!err.message.is_empty());
+        assert!(err.line > 0);
+    }
+
+    #[test]
+    fn parse_file_returns_empty_for_empty_file() {
+        let result = parse_source("");
+        assert!(result.parse_error.is_none());
+        assert!(result.file_info.public_items.is_empty());
+    }
+
+    #[test]
+    fn extract_public_items_finds_struct_enum_trait_fn() {
+        let src = "pub struct Foo {} pub enum Bar { A, B } pub trait Baz {} pub fn hello() {}";
+        let result = parse_source(src);
+        let items = extract_public_items(&result.ast.items);
+        let names: Vec<_> = items.iter().map(|i| i.name.as_str()).collect();
+        assert!(names.contains(&"Foo"));
+        assert!(names.contains(&"Bar"));
+        assert!(names.contains(&"Baz"));
+        assert!(names.contains(&"hello"));
+    }
+
+    #[test]
+    fn extract_public_items_empty_for_no_public_items() {
+        let src = "struct Private {} fn private_fn() {}";
+        let result = parse_source(src);
+        let items = extract_public_items(&result.ast.items);
+        assert!(items.is_empty());
+    }
+
+    #[test]
+    fn extract_imports_finds_use_statements() {
+        let src = "use std::collections::BTreeMap;";
+        let result = parse_source(src);
+        let imports = extract_imports(&result.ast.items);
+        assert_eq!(imports.len(), 1);
+        assert_eq!(imports[0].path, "std::collections::BTreeMap");
+    }
+
+    #[test]
+    fn extract_re_exports_finds_pub_use() {
+        let src = "pub use crate::foo;";
+        let result = parse_source(src);
+        let re_exports = extract_re_exports(&result.ast.items);
+        assert_eq!(re_exports.len(), 1);
+        assert_eq!(re_exports[0].import_path, "crate::foo");
+        assert_eq!(re_exports[0].export_path, "foo");
+    }
+
+    #[test]
+    fn extract_re_exports_finds_rename() {
+        let src = "pub use crate::foo as bar;";
+        let result = parse_source(src);
+        let re_exports = extract_re_exports(&result.ast.items);
+        assert_eq!(re_exports.len(), 1);
+        assert_eq!(re_exports[0].import_path, "crate::foo as bar");
+        assert_eq!(re_exports[0].export_path, "bar");
+    }
+
+    #[test]
+    fn extract_submodules_finds_mod_declarations() {
+        let src = "mod foo; mod bar;";
+        let result = parse_source(src);
+        let subs = extract_submodules(&result.ast.items);
+        assert_eq!(subs.len(), 2);
+        let names: Vec<_> = subs.iter().map(|s| s.name.as_str()).collect();
+        assert!(names.contains(&"bar"));
+        assert!(names.contains(&"foo"));
+    }
+
+    #[test]
+    fn extract_submodules_marks_cfg_test() {
+        let src = "#[cfg(test)] mod inner;";
+        let result = parse_source(src);
+        let subs = extract_submodules(&result.ast.items);
+        assert_eq!(subs.len(), 1);
+        assert!(subs[0].is_test);
+    }
+
+    #[test]
+    fn extract_impls_finds_fn_type_const() {
+        let src = "impl MyType { pub fn foo(&self) {} pub type Alias = u32; pub const N: usize = 42; }";
+        let result = parse_source(src);
+        let impls = extract_impls(&result.ast.items);
+        assert_eq!(impls.len(), 1);
+        assert_eq!(impls[0].type_, "MyType");
+        assert_eq!(impls[0].items.len(), 3);
+    }
+
+    #[test]
+    fn build_parse_error_entry_constructs_error() {
+        let path = PathBuf::from("test.rs");
+        let err = SynParseError {
+            message: "expected `;`".to_string(),
+            line: 5,
+        };
+        let entry = build_parse_error_entry(&path, &err);
+        assert_eq!(entry.file, "test.rs");
+        assert_eq!(entry.line, 5);
+        assert_eq!(entry.kind, "syn_parse_error");
+        assert_eq!(entry.severity, ErrorSeverity::Error);
     }
 }
