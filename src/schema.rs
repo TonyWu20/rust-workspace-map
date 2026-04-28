@@ -340,4 +340,10 @@ pub struct ErrorEntry {
     #[builder(default)]
     pub line: usize,
     pub message: String,
+    pub severity: ErrorSeverity,
+    pub kind: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub context: Option<ErrorContext>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cause: Option<String>,
 }

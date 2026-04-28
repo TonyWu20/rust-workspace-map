@@ -2,7 +2,8 @@
   "plan": "/Users/tony/programming/rust-workspace-map/plans/phase-0.2.toml",
   "base_commit": "bfe6a418a006d292aabea07d27e4a8440d57d661",
   "completed": [
-    "TASK-2"
+    "TASK-2",
+    "TASK-3"
   ],
   "failed": [],
   "blocked": []

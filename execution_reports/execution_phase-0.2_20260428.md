@@ -24,3 +24,9 @@
   - `cargo check -p rust-workspace-map`: PASSED
   - `cargo check --workspace 2>&1`: PASSED
 
+### TASK-3: Expand ErrorEntry struct with severity, kind, context, and cause fields
+- **Status**: ✓ Passed
+- **Validation output**:
+  - `cargo check -p rust-workspace-map`: PASSED
+  - `cargo check --workspace 2>&1`: PASSED
+
