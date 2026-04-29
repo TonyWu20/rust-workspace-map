@@ -591,7 +591,6 @@ edition = "2021"
 
     // lib.rs with an undeclared module
     std::fs::write(src.join("lib.rs"), "mod nonexistent;").unwrap();
-    std::fs::write(src.join("Cargo.toml").parent().unwrap().join("Cargo.toml"), "").ok();
 
     let output = run_index(root.to_str().unwrap());
     assert!(output.status.success());
