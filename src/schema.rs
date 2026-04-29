@@ -240,7 +240,7 @@ pub struct PublicItem {
     pub impls: Vec<ImplInfo>,
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum ItemKind {
     Struct,
