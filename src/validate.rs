@@ -3,6 +3,7 @@ use crate::schema::{
 };
 use std::collections::HashSet;
 use std::path::Path;
+use walkdir::WalkDir;
 
 /// Run validation checks on the crate set.
 ///
@@ -51,45 +52,43 @@ fn check_orphan_files(
         .map(|m| m.file.clone())
         .collect();
 
-    // Walk the src/ directory recursively.
+    // Walk the src/ directory recursively using walkdir.
     let mut findings = Vec::new();
-    let Ok(entries) = std::fs::read_dir(&src_dir) else { return findings };
 
-    for entry in entries.flatten() {
+    for entry in WalkDir::new(&src_dir).into_iter().filter_entry(|e| {
+        // Always yield the root; keep files (filtered later); skip hidden, bin/, tests/ dirs.
+        e.depth() == 0 || !e.file_type().is_dir() || {
+            let name = e.file_name().to_string_lossy();
+            !name.starts_with('.') && name != "bin" && name != "tests"
+        }
+    }) {
+        let Ok(entry) = entry else { continue };
         let path = entry.path();
-        if path.file_name().is_some_and(|f| f == "lib.rs" || f == "main.rs") {
-            continue; // Skip crate roots — they're declared implicitly.
+
+        if !path.is_file() {
+            continue;
         }
         if path.extension().is_none_or(|e| e != "rs") {
             continue;
         }
-        if path.file_name().is_some_and(|f| f == "mod.rs") {
-            continue; // mod.rs files are declared by their parent directory.
-        }
-        if path.file_name().is_some_and(|f| f == "bin") {
-            continue; // Skip src/bin/ directory.
+        let file_name = path.file_name().map_or_else(String::new, |f| f.to_string_lossy().into_owned());
+        if file_name == "lib.rs" || file_name == "main.rs" || file_name == "mod.rs" {
+            continue; // Crate roots and mod.rs — declared implicitly.
         }
 
         let ws_rel = path.strip_prefix(workspace_root)
-            .unwrap_or(&path)
+            .unwrap_or(path)
             .to_string_lossy()
             .to_string();
 
-        // Skip if declared in module tree.
         if declared_files.contains(&ws_rel) {
             continue;
         }
 
-        // This file is orphaned. Determine parent file for fix hint.
         let parent_file = determine_parent_file(&ws_rel, crate_name, crate_info);
-
-        let file_name = path
-           .file_name()
-           .map_or("unknown".to_string(), |f| f.to_string_lossy().into_owned());
-       let stem = path
-           .file_stem()
-           .map_or(String::new(), |s| s.to_string_lossy().into_owned());
-       findings.push(ErrorEntry::builder()
+        let stem = path.file_stem()
+            .map_or_else(String::new, |s| s.to_string_lossy().into_owned());
+        findings.push(ErrorEntry::builder()
             .file(ws_rel.clone())
             .message(format!(
                 "orphan file: '{file_name}' is not declared in the module tree. Add 'pub mod {stem};' to {parent_file}."
