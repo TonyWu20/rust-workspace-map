@@ -92,12 +92,12 @@ pub fn compute(crates: &mut [CrateInfo]) -> CrossReferences {
                     if let Some(candidates) = reverse_lookup.get(&symbol) {
                         for canonical_path in candidates {
                             // Only match entries from the target crate.
-                            if let Some(type_ref) = types_map.get_mut(canonical_path) {
-                                if type_ref.crate_name == first_seg {
-                                    let importer_label = format!("{}:{}", my_name, module.path);
-                                    if !type_ref.imported_by.contains(&importer_label) {
-                                        type_ref.imported_by.push(importer_label.clone());
-                                    }
+                            if let Some(type_ref) = types_map.get_mut(canonical_path)
+                                && type_ref.crate_name == first_seg
+                            {
+                                let importer_label = format!("{}:{}", my_name, module.path);
+                                if !type_ref.imported_by.contains(&importer_label) {
+                                    type_ref.imported_by.push(importer_label.clone());
                                 }
                             }
                         }

@@ -3,14 +3,18 @@ use crate::schema::{
 };
 use std::collections::BTreeMap;
 
-/// Build flat indexes from a slice of CrateInfo.
+type SymbolsIndex = BTreeMap<CanonicalPath, SymbolEntry>;
+type NameIndex = BTreeMap<String, Vec<CanonicalPath>>;
+type FilesIndex = BTreeMap<WorkspaceRelativePath, FileEntry>;
+
+/// Build flat indexes from a slice of `CrateInfo`.
 ///
 /// Returns three maps:
 /// 1. `symbols` — canonical-path-keyed map of all public items
 /// 2. `name_index` — short-name to canonical-path list (for disambiguation)
 /// 3. `files` — workspace-relative-path-keyed map of all source files with module metadata
 ///
-/// The symbols and name_index are constructed via an iterator pipeline;
+/// The symbols and `name_index` are constructed via an iterator pipeline;
 /// the files map uses a for-loop due to the inline-detection accumulator.
 ///
 /// # Inline module detection
@@ -19,14 +23,11 @@ use std::collections::BTreeMap;
 /// The heuristic: the first module encountered per file path is the primary
 /// (declared in a separate file); subsequent modules sharing the same file
 /// are inline modules and are excluded from the files map.
+#[allow(clippy::type_complexity)]
 #[must_use]
 pub fn derive_from_crates(
     crates: &[CrateInfo],
-) -> (
-    BTreeMap<CanonicalPath, SymbolEntry>,
-    BTreeMap<String, Vec<CanonicalPath>>,
-    BTreeMap<WorkspaceRelativePath, FileEntry>,
-) {
+) -> (SymbolsIndex, NameIndex, FilesIndex) {
     // ── symbols & name_index via iterator pipeline ────────────────────
 
     let (syms, mut nidx): (
@@ -91,7 +92,9 @@ pub fn derive_from_crates(
             let is_crate_root = module.path == crate_info.name;
 
             // Compute parent_module_file by walking the crate's modules.
-            let parent_module_file = if !module.path.is_empty() {
+            let parent_module_file = if module.path.is_empty() {
+                None // Root module has no parent.
+            } else {
                 // Strip last ::name segment to get parent path.
                 if let Some(pos) = module.path.rfind("::") {
                     let parent_path = &module.path[..pos];
@@ -104,8 +107,6 @@ pub fn derive_from_crates(
                 } else {
                     None
                 }
-            } else {
-                None // Root module has no parent.
             };
 
             let files_entry = match parent_module_file {

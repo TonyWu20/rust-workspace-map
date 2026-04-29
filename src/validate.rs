@@ -53,23 +53,20 @@ fn check_orphan_files(
 
     // Walk the src/ directory recursively.
     let mut findings = Vec::new();
-    let entries = match std::fs::read_dir(&src_dir) {
-        Ok(e) => e,
-        Err(_) => return findings,
-    };
+    let Ok(entries) = std::fs::read_dir(&src_dir) else { return findings };
 
     for entry in entries.flatten() {
         let path = entry.path();
-        if path.file_name().map_or(false, |f| f == "lib.rs" || f == "main.rs") {
+        if path.file_name().is_some_and(|f| f == "lib.rs" || f == "main.rs") {
             continue; // Skip crate roots — they're declared implicitly.
         }
-        if !path.extension().map_or(false, |e| e == "rs") {
+        if path.extension().is_none_or(|e| e != "rs") {
             continue;
         }
-        if path.file_name().map_or(false, |f| f == "mod.rs") {
+        if path.file_name().is_some_and(|f| f == "mod.rs") {
             continue; // mod.rs files are declared by their parent directory.
         }
-        if path.file_name().map_or(false, |f| f == "bin") {
+        if path.file_name().is_some_and(|f| f == "bin") {
             continue; // Skip src/bin/ directory.
         }
 
@@ -177,7 +174,7 @@ fn check_dead_reexports(
     findings
 }
 
-/// Resolve an import path by expanding 'crate::', 'self::', 'super::' prefixes.
+/// Resolve an import path by expanding `crate::`, `self::`, `super::` prefixes.
 fn resolve_import_path(path: &str, crate_name: &str, module_path: &str) -> String {
     if let Some(rest) = path.strip_prefix("crate::") {
         format!("{crate_name}::{rest}")
@@ -185,8 +182,7 @@ fn resolve_import_path(path: &str, crate_name: &str, module_path: &str) -> Strin
         format!("{module_path}::{rest}")
     } else if let Some(rest) = path.strip_prefix("super::") {
         let parent = module_path.rsplit_once("::")
-            .map(|(p, _)| p)
-            .unwrap_or("");
+            .map_or("", |(p, _)| p);
         if parent.is_empty() {
             format!("{crate_name}::{rest}")
         } else {

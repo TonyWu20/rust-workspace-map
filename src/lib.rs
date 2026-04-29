@@ -21,10 +21,10 @@ use schema::{
 };
 use std::path::Path;
 
-/// Build a WorkspaceMap from the given config, without rendering.
+/// Build a `WorkspaceMap` from the given config, without rendering.
 ///
 /// This function contains all pipeline logic up to and including
-/// WorkspaceMap construction — workspace discovery, per-crate processing,
+/// `WorkspaceMap` construction — workspace discovery, per-crate processing,
 /// cross-refs computation, index derivation, optional validation, and map building.
 ///
 /// # Errors

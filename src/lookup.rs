@@ -39,15 +39,14 @@ pub struct FileLookupResult {
     pub inline_modules: Vec<ModuleInfo>,
 }
 
-/// Look up a symbol by name in the workspace map's name_index.
+/// Look up a symbol by name in the workspace map's `name_index`.
 ///
 /// Returns `Found` if exactly one canonical path is found,
 /// `Ambiguous` if multiple candidates exist, or `NotFound` otherwise.
 #[must_use]
 pub fn lookup_symbol(map: &WorkspaceMap, name: &str) -> SymbolLookupResult {
-    let candidates = match map.name_index.get(name) {
-        Some(candidates) => candidates,
-        None => return SymbolLookupResult::NotFound,
+    let Some(candidates) = map.name_index.get(name) else {
+        return SymbolLookupResult::NotFound;
     };
 
     if candidates.len() == 1 {
