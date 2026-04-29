@@ -33,7 +33,7 @@ fn test_sample_workspace_output() {
         serde_json::from_str(&stdout).expect("output is not valid JSON");
 
     // Top-level structure.
-    assert_eq!(json["workspace"]["root"], ".");
+    assert!(!json["workspace"]["root"].as_str().unwrap().is_empty());
     assert!(!json["workspace"]["workspaceName"].as_str().unwrap().is_empty());
     assert!(json["crates"].is_array(), "crates must be an array");
 

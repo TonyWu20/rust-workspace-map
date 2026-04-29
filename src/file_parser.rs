@@ -1,5 +1,5 @@
 use crate::schema::{
-    ErrorEntry, ErrorSeverity, FileInfo, ImplInfo, ImplItem, ImplItemKind, Import,
+    DiagnosticKind, ErrorEntry, ErrorSeverity, FileInfo, ImplInfo, ImplItem, ImplItemKind, Import,
     ItemAttrs, ItemKind, PublicItem, ReExport, SubmoduleDecl,
 };
 use std::path::Path;
@@ -92,7 +92,7 @@ pub(crate) fn build_parse_error_entry(path: &Path, err: &SynParseError) -> Error
         .line(err.line)
         .message(err.message.clone())
         .severity(ErrorSeverity::Error)
-        .kind("syn_parse_error".to_string())
+        .kind(DiagnosticKind::SynParseError)
         .build()
 }
 
@@ -786,7 +786,7 @@ mod tests {
         let entry = build_parse_error_entry(&path, &err);
         assert_eq!(entry.file, "test.rs");
         assert_eq!(entry.line, 5);
-        assert_eq!(entry.kind, "syn_parse_error");
+        assert_eq!(entry.kind, crate::schema::DiagnosticKind::SynParseError);
         assert_eq!(entry.severity, ErrorSeverity::Error);
     }
 }

@@ -13,8 +13,8 @@ pub use schema::Config;
 use anyhow::Context;
 use rayon::prelude::*;
 use schema::{
-    CrateInfo, CrateType, ErrorEntry, ErrorSeverity, ModuleInfo, WorkspaceInfo,
-    WorkspaceMap,
+    CrateInfo, CrateType, DiagnosticKind, ErrorEntry, ErrorSeverity, ModuleInfo,
+    WorkspaceInfo, WorkspaceMap,
 };
 use std::path::Path;
 
@@ -50,7 +50,7 @@ pub fn run(config: &Config) -> anyhow::Result<()> {
                         .file(cargo_toml.to_string_lossy().to_string())
                         .message(format!("failed to parse Cargo.toml: {e}"))
                         .severity(ErrorSeverity::Error)
-                        .kind("toml_parse_error".to_string())
+                        .kind(DiagnosticKind::TomlParseError)
                         .cause(e.to_string())
                         .build());
                     return (None, crate_errors);
@@ -63,7 +63,7 @@ pub fn run(config: &Config) -> anyhow::Result<()> {
                     .file(dir.to_string_lossy().to_string())
                     .message("no crate entry points found".to_string())
                     .severity(ErrorSeverity::Warning)
-                    .kind("missing_crate_roots".to_string())
+                    .kind(DiagnosticKind::MissingCrateRoots)
                     .build());
                 return (None, crate_errors);
             }
@@ -85,14 +85,7 @@ pub fn run(config: &Config) -> anyhow::Result<()> {
                 collected_errors.extend(e);
             }
             for err in collected_errors {
-                if err.kind.is_empty() {
-                    crate_errors.push(ErrorEntry {
-                        kind: "module_tree_error".to_string(),
-                        ..err
-                    });
-                } else {
-                    crate_errors.push(err);
-                }
+                crate_errors.push(err);
             }
 
             // Relativize all paths to the workspace root.
@@ -130,10 +123,12 @@ pub fn run(config: &Config) -> anyhow::Result<()> {
     let mut crate_infos: Vec<CrateInfo> = Vec::new();
 
     for (info, errs) in results {
+        // Extend errors in both branches before checking info.
+        // `errs` is moved by `extend` — this is fine because results is consumed by the for loop (move iteration).
         if let Some(ci) = info {
-            crate_errors.extend(errs);
             crate_infos.push(ci);
         }
+        crate_errors.extend(errs);
     }
 
     // Deterministic sort by crate name.
@@ -147,7 +142,7 @@ pub fn run(config: &Config) -> anyhow::Result<()> {
         .unwrap_or_default();
 
     let workspace_info = WorkspaceInfo::builder()
-        .root(".".to_string())
+        .root(workspace_root.to_string_lossy().to_string())
         .workspace_name(workspace_name)
         .build();
 
