@@ -3,7 +3,7 @@
   "worktree_path": "/Users/tony/programming/rust-workspace-map/.pipeline-worktrees/mvp-fp-cleanup-g2-docs",
   "groups": {
     "group-g2-docs": {
-      "status": "pending",
+      "status": "completed",
       "tasks": [
         "TASK-G2",
         "TASK-README"

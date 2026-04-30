@@ -80,6 +80,10 @@ The `--validate` flag runs two deterministic checks after indexing. Both emit `E
 
 **Conservative recall policy:** The tool prioritizes false negatives over false positives. External-crate re-exports that go through path resolution before the workspace-member check can produce false positives — record these when encountered and evaluate whether the skip logic needs tightening.
 
+**Derive-companion awareness (prefix-decomposition heuristic):** DeadReExport false positives commonly occur when derive macros like `bon::Builder` generate public companion types (e.g. `CellDocumentBuilder`) that get re-exported but are not present in the symbol index. When a re-exported name is not found, the tool decomposes the name into decreasing prefixes, looking for a base type in the same module whose `SymbolEntry` has non-empty `derive_attrs`. If such a base is found, the finding is suppressed. This approach uses a purely structural signal — zero hardcoded derive names, zero suffix lists — and automatically handles any ecosystem derive that generates named types. The heuristic is deliberately conservative: it prefers a false negative (suppressing a genuinely-dead re-export whose base type coincidentally has derives) over a false positive (flagging every derive-generated companion).
+
+**Known limitation — private base types:** A private struct with a derive macro like `bon::Builder` that generates a public builder type cannot be suppressed by this heuristic. The private base type is absent from the public-only symbol index, so the prefix-decomposition lookup has nothing to match against. This is an accepted limitation — populating the index with private types would change the contract of `--validate` from "public API surface" to "all types", which is a separate concern.
+
 ## What this tool does and doesn't analyze
 
 ### Does
