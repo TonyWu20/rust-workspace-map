@@ -164,20 +164,26 @@ fn check_orphan_files(
 fn determine_parent_file(
     orphan_file: &str,
     crate_name: &str,
-    _crate_info: &CrateInfo,
+    crate_info: &CrateInfo,
 ) -> String {
-    // Strip src/ prefix, resolve parent directory to a module file.
-    let stripped = orphan_file.strip_prefix("src/").unwrap_or(orphan_file);
+    // Derive the src/ directory from crate_info.root (e.g. "src/lib.rs" → "src").
+    let src_dir = std::path::Path::new(&crate_info.root)
+        .parent()
+        .map_or(std::path::Path::new(""), |p| p);
+    let src_prefix = format!("{}/", src_dir.display());
+
+    // Strip the src/ prefix, resolve parent directory to a module file.
+    let stripped = orphan_file.strip_prefix(&src_prefix).unwrap_or(orphan_file);
     let parent_dir = stripped.rsplit_once('/').map(|(dir, _)| dir);
 
     match parent_dir {
         Some("") | None => {
             // File is directly in src/ — parent is lib.rs or main.rs.
-            format!("{crate_name}/src/lib.rs")
+            format!("{crate_name}/{src_prefix}lib.rs")
         }
         Some(dir) => {
             // File is in a subdirectory — parent module file is dir/lib.rs or dir/mod.rs.
-            format!("{crate_name}/src/{dir}/mod.rs")
+            format!("{crate_name}/{src_prefix}{dir}/mod.rs")
         }
     }
 }
