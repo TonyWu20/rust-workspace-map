@@ -1,7 +1,7 @@
 # Phase: MVP False-Positive Cleanup
 
 **Date:** 2026-04-30
-**Status:** Draft
+**Status:** Reviewed — 6 amendments applied. See `notes/plan-reviews/mvp-fp-cleanup/decisions.md`.
 **Branch:** mvp-dev
 
 ## Context
@@ -39,14 +39,15 @@ Additionally, a path-calculation bug in `determine_parent_file` produces mislead
 - Conservative-recall policy aligns: the tool prefers false negatives (suppressing a genuinely-dead re-export where the base type coincidentally has derives) over false positives (flagging every derive-generated re-export). The genuinely-dead-with-derives-on-base case is vanishingly rare.
 - `serde::Serialize`, `serde::Deserialize`, `thiserror::Error`, and most ecosystem derives never enter this code path — they generate trait/method impls only, not new named types.
 - If the prefix lookup fails to decompose (no base type found in the same module), the DeadReExport stands — this handles cases where the name genuinely has no base in the crate.
+- **Known limitation:** Private structs with `#[derive(bon::Builder)]` generating a public builder — the base type is absent from the public-only symbol index, so prefix-decomposition cannot find it. This is an accepted false-negative edge case.
 
 **Why now:** The `--validate` gate on `castep-cell-io` produces 283 findings today, a mix of real dead re-exports and false positives. No one can triage 283 entries. This heuristic eliminates the derive-generated class entirely.
 
 **Effort:** Medium. Touches:
-- `src/indexes.rs` — during symbol construction, embed derive attributes on `SymbolEntry` (the `PublicItem.attrs` data is already captured, just needs to be carried through)
+- `src/indexes.rs` — copy `item.attrs.derive` to `SymbolEntry.derive_attrs` (straight copy, already parsed)
 - `src/schema.rs` — add `derive_attrs: Vec<String>` to `SymbolEntry` (optional, default empty)
 - `src/validate.rs` — prefix-decomposition + base-type derive check in the DeadReExport handler
-- Unit tests: prefix-decompose cases (builder, error, no-match), derive-presence check, same-module scoping
+- Unit tests: prefix-decompose cases (builder, error, no-match), derive-presence check, same-module scoping, bare-path external skip, `crate::` path proceed
 
 ### Goal 3 — Fix `determine_parent_file` for non-root crate locations (Trivial)
 
@@ -82,22 +83,23 @@ Additionally, a path-calculation bug in `determine_parent_file` produces mislead
 
 ## Design Notes
 
-### G1: External-crate check
+### G1: External-crate check (prefix-aware)
 
-In `check_dead_reexports`, the import path is currently resolved through `crate::`/`self::`/`super::` prefix expansion before checking the symbol index. The fix adds a pre-check on the **original path** (the `use_path` as written in source, before resolution):
+In `check_dead_reexports`, the import path is currently resolved through `crate::`/`self::`/`super::` prefix expansion before checking the symbol index. The fix adds a pre-check on the **original path** (`re_export.import_path` as written in source, before `resolve_import_path` is called). The check must be prefix-aware to avoid incorrectly skipping `crate::`-prefixed internal paths:
 
-```
-if first_segment is not in (workspace_members ∪ current_crate_modules):
-    skip  # external crate
-```
+| Path prefix | Action |
+|---|---|
+| Bare (`serde::Serialize`) | First segment is the target. If NOT in `crate_names` AND NOT a top-level module of the current crate → skip |
+| `crate::` | Strip prefix, then check next segment against crate modules only (always internal) |
+| `self::` / `super::` | Always internal — skip the external-crate check, proceed to resolution |
 
-Workspace member names are already available in scope (the function iterates over all crates). Module names for the current crate can be collected from `crate_info.modules[].name`.
+Top-level module names: collect from `crate_info.modules` where `path == format!("{crate_name}::{child}")`. Workspace member names are already available in scope (the function iterates over all crates).
 
 ### G2: Prefix-decomposition heuristic
 
 **Data flow:**
 
-1. `indexes.rs` already iterates all `PublicItem`s to build `SymbolEntry` values. During this pass, extract derive attributes from `item.attrs` (filter for `#[derive(...)]` lines, parse inner paths). Store on `SymbolEntry.derive_attrs: Vec<String>`.
+1. `indexes.rs` already iterates all `PublicItem`s to build `SymbolEntry` values. `ItemAttrs.derive` is already `Vec<String>` — this is a straight copy: `SymbolEntry.derive_attrs = item.attrs.derive.clone()`.
 
 2. `schema.rs`: add field to `SymbolEntry`:
    ```rust
@@ -107,12 +109,13 @@ Workspace member names are already available in scope (the function iterates ove
    ```
 
 3. `validate.rs`: in the DeadReExport handler, when a symbol is not found:
-   - Take the last segment of the canonical path (e.g., `CellDocumentBuilder`)
-   - Iterate decreasing prefix lengths
-   - At each step, check `symbols["crate::module::<prefix>"]` for the same module path
-   - First match: check `symbol.derive_attrs.is_empty()`
-   - If non-empty: suppress this DeadReExport (derive-generated companion)
+   - Take the last `::` segment of the canonical path (e.g., `CellDocumentBuilder`)
+   - Iterate decreasing prefix lengths of that name
+   - At each step, build the lookup key as `"{module.path}::{prefix}"` where `module.path` is the re-export's module (same-module scoped). E.g., for `module.path = "mycrate::sub"` and `CellDocumentBuilder`, lookup `"mycrate::sub::CellDocument"`, `"mycrate::sub::Cell"`, etc.
+   - First match in `symbols`: if `symbol.derive_attrs` is non-empty → suppress this DeadReExport
    - If no prefix matches at all: the finding stands
+
+   **Known limitation:** Private structs with `#[derive(bon::Builder)]` generating a public builder — the base type is absent from the public-only symbol index, so prefix-decomposition cannot find it. This is an accepted false-negative edge case.
 
 **Same-module scoping:** The prefix lookup is constrained to the same module as the re-export target. A `pub use` of `FooBuilder` in module `bar` only checks symbols in module `bar` — not global. This prevents cross-module false matches.
 

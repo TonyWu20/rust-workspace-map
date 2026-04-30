@@ -1,0 +1,179 @@
+{
+  "meta": {
+    "title": "mvp-fp-cleanup: Eliminate DeadReExport False Positives",
+    "source_branch": "mvp-dev"
+  },
+  "architecture_notes": [
+    "Single crate (rust-workspace-map v0.2.0, edition 2024). No new crates or modules introduced.",
+    "All changes fit in existing files: src/schema.rs, src/indexes.rs, src/validate.rs, README.md, tests/fixtures/bad-orphan/, tests/integration_test.rs.",
+    "G1 and G2 both modify check_dead_reexports in validate.rs. G1 adds a pre-check at the top of the per-re-export loop; G2 adds logic in the !symbols.contains_key branch. They touch different regions but share the same function body \u2014 implement sequentially (G1 first, then G2) to avoid merge conflicts.",
+    "SymbolEntry uses #[serde(rename_all = \"camelCase\")]. The new derive_attrs field will serialize as \"deriveAttrs\" in JSON output. This is consistent with all other SymbolEntry fields.",
+    "derive_attrs values are pre-sorted by extract_attrs (file_parser.rs line 481: derive.sort()). No additional sorting needed.",
+    "SymbolEntry uses bon::Builder. The new derive_attrs field must carry #[builder(default)] so existing builder call sites that omit it continue to compile.",
+    "All BTreeMap-based collections are sorted by key for deterministic output.",
+    "The existing cross-crate check at lines 148-151 of validate.rs (checking first_seg against crate_names) MUST NOT be removed. It handles cross-workspace-member re-exports that pass the G1 pre-check. G1 short-circuits before this check for external-crate paths; the existing check remains as a safety net for cross-workspace-member paths.",
+    "Paths throughout the codebase are workspace-relative strings. No absolute paths introduced.",
+    "Error handling: all new functions are pure predicates returning bool. No Result, no panics. Use early returns and conditionals.",
+    "Naming conventions: snake_case functions (is_*, check_*), descriptive variable names, test_<scenario> for tests.",
+    "Unit tests live in #[cfg(test)] mod tests within the same file. Integration tests invoke the compiled binary via std::process::Command.",
+    "Library code in this phase follows ch12-04 TDD: tests claim interfaces first via tdd_interface, then implementations evolve to meet them. See /Users/tony/programming/rust-development-pipeline/skills/elaborate-directions/references/tdd-pattern.md for the reference pattern."
+  ],
+  "known_pitfalls": [
+    "G1: crate_names alone is insufficient for bare-path check. A bare path like 'use utils::Helper' where 'utils' is both a workspace member name AND a top-level module of the current crate must be treated as internal (NOT skipped). Must also check crate_info.modules for top-level modules of the current crate.",
+    "G1: The existing cross-crate check (lines 148-151 of validate.rs) operates on resolved paths. G1 operates on the original unresolved import_path. They coexist: G1 runs first and short-circuits via continue for external crates; the existing check remains as a safety net for cross-workspace-member re-exports that G1 lets through (bare paths where first segment is a workspace member other than self, NOT a top-level module).",
+    "G2: derive_attrs is a straight copy of item.attrs.derive (already Vec<String> from extract_attrs). Do NOT re-extract from the AST or call extract_attrs again. The change in indexes.rs is a one-liner: .derive_attrs(item.attrs.derive.clone()).",
+    "G2: Same-module scoping is critical. The lookup key in is_derive_companion must use the re-export's module path (e.g., 'mycrate::sub::CellDocument'), not a global search. A pub use of FooBuilder in module bar only checks symbols in module bar.",
+    "G2: Lookup key format is 'module_path::prefix' where module_path is the canonical module path (e.g., 'mycrate::sub'). This matches how keys are constructed in indexes.rs: format!(\"{}::{}\", m.path, item.name).",
+    "G2: Prefix iteration must start from longest prefix (len(name)) and decrease. Shorter prefixes are less specific \u2014 a match on 'Cell' (prefix of 'CellDocumentBuilder') could be a different type. Longest-prefix-first minimizes false suppression.",
+    "G2: Private-base-type limitation is a known false negative, not a bug. Private structs with #[derive(bon::Builder)] that generate public builders cannot be suppressed because the base type is absent from the public-only symbol index. Document this in README; do NOT attempt to populate the index with private types.",
+    "G3: crate_info.root points to a file (e.g., 'src/lib.rs'), not a directory. Use .parent() to derive the src/ directory. Do NOT use .join(\"src\") \u2014 that would produce 'src/lib.rs/src'.",
+    "G3: The orphan_file parameter is already workspace-relative (stripped by path.strip_prefix(workspace_root) in check_orphan_files). The derived prefix from crate_info.root.parent() is also workspace-relative. The strip_prefix operation is correct.",
+    "G4: Modifying bad-orphan/src/lib.rs to add 'pub mod sub;' must preserve the existing orphan behavior \u2014 forgotten.rs must remain undeclared and still appear as an orphan. Verify the existing test_validate_orphan_file_exits_2 still passes after fixture changes.",
+    "G4: The deep orphan file (sub/deep/orphan.rs) must NOT be declared in any mod statement. sub/mod.rs declares 'pub mod legal;' but NOT 'pub mod deep;' and NOT 'pub mod deep::orphan;'.",
+    "Serde: SymbolEntry uses #[serde(rename_all = \"camelCase\")] \u2014 the new derive_attrs field will serialize as deriveAttrs. Do NOT add a separate rename annotation. The field-level #[serde(skip_serializing_if = \"Vec::is_empty\")] is sufficient.",
+    "Clippy: cargo clippy -D warnings must remain clean. Fix all warnings; do NOT add #[allow(...)] annotations.",
+    "Determinism: All unit test assertions must not depend on HashMap iteration order. Use BTreeMap for ordered collections when iteration order matters in tests. derive_attrs is already sorted by extract_attrs; no new ordering concerns."
+  ],
+  "task_groups": [
+    {
+      "group_id": "group-g1-g3-g4",
+      "reason": "TASK-G1, TASK-G3, and TASK-G4 touch different physical locations with zero overlap. G1 modifies the check_dead_reexports loop top (lines ~136-142); G3 modifies determine_parent_file body (lines ~106-123, different function); G4 touches tests/fixtures/ and tests/integration_test.rs (different files entirely). All three can be implemented, tested, and committed independently with no merge conflicts.",
+      "tasks": [
+        "TASK-G1",
+        "TASK-G3",
+        "TASK-G4"
+      ],
+      "depends_on_groups": []
+    }
+  ],
+  "tasks": [
+    {
+      "id": "TASK-G1",
+      "kind": "lib-tdd",
+      "description": "Implement prefix-aware external-crate pre-check (is_external_crate_re_export) and wire it into check_dead_reexports to skip re-exports targeting external crates like serde::Serialize.",
+      "files_in_scope": [
+        "src/validate.rs"
+      ],
+      "changes": [
+        {
+          "path": "src/validate.rs",
+          "action": "modify",
+          "guidance": "IMPLEMENTATION APPROACH (TDD cycle):\n\n1. RED: Write the test from tdd_interface.test_code into the existing #[cfg(test)] mod tests block at the bottom of validate.rs. Run cargo test \u2014 it will fail because is_external_crate_re_export does not exist yet.\n\n2. GREEN \u2014 Implement the function:\n   - Add fn is_external_crate_re_export(import_path: &str, crate_names: &HashSet<&str>, crate_info: &CrateInfo) -> bool above the existing check_dead_reexports function.\n   - Three-case dispatch on path prefix:\n     a. self:: or super:: prefix: return false (always internal).\n     b. crate:: prefix: return false (always internal).\n     c. Bare path (no known prefix): extract the first ::-delimited segment. Check if the segment is in crate_names AND equals a workspace member OTHER than the current crate (check crate_info.name). If yes, it's a cross-workspace-member re-export \u2014 but do NOT return true here. Instead, also check if the segment matches a top-level module of the current crate (modules where path == format!(\"{crate_name}::{segment}\")). If it matches a top-level module, return false (internal). Otherwise return true (external).\n   - Edge case: if import_path has no :: separator (single segment), treat as internal (return false).\n\n3. GREEN \u2014 Wire into check_dead_reexports:\n   - In the per-re-export loop (for re_export in &module.re_exports), after the glob re-export skip (if path.ends_with(\"::*\")), add the G1 pre-check:\n     if is_external_crate_re_export(path, crate_names, crate_info) { continue; }\n   - The existing code (resolve_import_path, cross-crate check, symbol lookup) remains unchanged below the G1 pre-check.\n\n4. REFACTOR: Run cargo clippy -- -D warnings and fix any issues. Verify the function is clean and readable.\n\n5. Additional tests to add during refactor (beyond the TDD specification test):\n   - super:: prefix is always internal\n   - Bare single-segment path (e.g., 'Foo') is internal\n   - Bare path where first segment is a workspace member OTHER than self AND is NOT a top-level module (cross-workspace-member, passes G1, handled by existing check)\n   - Empty string path (defensive: return false)"
+        }
+      ],
+      "tdd_interface": {
+        "test_file": "src/validate.rs",
+        "test_module": "tests",
+        "test_fn_name": "test_is_external_crate_re_export",
+        "test_code": "#[test]\nfn test_is_external_crate_re_export() {\n    use std::collections::HashSet;\n    use crate::schema::{CrateInfo, DepInfo, CrateType, ModuleInfo, PackageInfo};\n\n    let crate_info = CrateInfo::builder()\n        .name(\"mycrate\".to_string())\n        .root(\"src/lib.rs\".to_string())\n        .package(\n            PackageInfo::builder()\n                .name(\"mycrate\".to_string())\n                .version(\"0.1.0\".to_string())\n                .edition(\"2021\".to_string())\n                .crate_type(CrateType::Lib)\n                .build(),\n        )\n        .modules(vec![\n            ModuleInfo::builder()\n                .path(\"mycrate\".to_string())\n                .file(\"src/lib.rs\".to_string())\n                .visibility(\"pub\".to_string())\n                .build(),\n            ModuleInfo::builder()\n                .path(\"mycrate::utils\".to_string())\n                .file(\"src/utils.rs\".to_string())\n                .visibility(\"pub\".to_string())\n                .build(),\n        ])\n        .deps(DepInfo::default())\n        .build();\n\n    let mut crate_names = HashSet::new();\n    crate_names.insert(\"mycrate\");\n\n    // Bare path: \"serde\" is not a workspace member and not a top-level module \u2192 external\n    assert!(\n        is_external_crate_re_export(\"serde::Serialize\", &crate_names, &crate_info),\n        \"serde::Serialize should be external\"\n    );\n\n    // Bare path: \"utils\" IS a top-level module of mycrate \u2192 internal\n    assert!(\n        !is_external_crate_re_export(\"utils::Helper\", &crate_names, &crate_info),\n        \"utils::Helper should be internal (utils is a top-level module)\"\n    );\n\n    // crate:: prefix is always internal\n    assert!(\n        !is_external_crate_re_export(\"crate::sub::missing\", &crate_names, &crate_info),\n        \"crate:: path should always be internal\"\n    );\n\n    // self:: prefix is always internal\n    assert!(\n        !is_external_crate_re_export(\"self::inner::Type\", &crate_names, &crate_info),\n        \"self:: path should always be internal\"\n    );\n}",
+        "signature": "fn is_external_crate_re_export(import_path: &str, crate_names: &HashSet<&str>, crate_info: &CrateInfo) -> bool",
+        "expected_behavior": "Returns true if the import_path targets an external crate (not a workspace member or internal module), meaning the re-export should be skipped. Bare paths check the first :: segment against workspace members AND top-level modules of the current crate. crate::, self::, and super:: prefixes always return false (internal). Single-segment bare paths return false."
+      },
+      "wiring_checklist": [
+        {
+          "kind": "fn_call",
+          "file": "src/validate.rs",
+          "detail": "is_external_crate_re_export called in check_dead_reexports loop, after glob re-export skip, before resolve_import_path"
+        }
+      ],
+      "type_reference": {
+        "is_external_crate_re_export": "fn is_external_crate_re_export(import_path: &str, crate_names: &HashSet<&str>, crate_info: &CrateInfo) -> bool"
+      },
+      "acceptance": [
+        "cargo test -p rust-workspace-map test_is_external_crate_re_export",
+        "cargo test -p rust-workspace-map",
+        "cargo clippy -p rust-workspace-map -- -D warnings"
+      ],
+      "depends_on": []
+    },
+    {
+      "id": "TASK-G3",
+      "kind": "direct",
+      "description": "Fix determine_parent_file to derive the src/ prefix from crate_info.root instead of hardcoding 'src/', fixing incorrect parent-file paths for non-root workspace members (e.g., crates/mylib/).",
+      "files_in_scope": [
+        "src/validate.rs"
+      ],
+      "changes": [
+        {
+          "path": "src/validate.rs",
+          "action": "modify",
+          "guidance": "In the determine_parent_file function (lines 105-124):\n\n1. Remove the underscore prefix from the _crate_info parameter (change to crate_info) since the parameter is now used.\n\n2. Replace the hardcoded strip_prefix(\"src/\") with a prefix derived from crate_info.root:\n   - Use std::path::Path to work with paths portably.\n   - Get the src/ directory: Path::new(&crate_info.root).parent(). This gives the directory containing the crate root file (e.g., for root=\"src/lib.rs\", parent is \"src\").\n   - Construct the prefix string: format!(\"{}/\", src_dir.display()) to match the existing string-based strip_prefix pattern.\n   - Use orphan_file.strip_prefix(&src_prefix).unwrap_or(orphan_file).\n\n3. Keep the rest of the function logic unchanged: rsplit_once('/') for parent_dir extraction, the match on Some(\"\")/None vs Some(dir), and the format! macros for constructing the parent file hint.\n\n4. The _crate_info parameter becomes crate_info (remove the underscore). The function signature becomes:\n   fn determine_parent_file(orphan_file: &str, crate_name: &str, crate_info: &CrateInfo) -> String\n\n5. Verify the function still compiles with the unused-parameter warning gone. No other call sites need updating \u2014 check_orphan_files already passes crate_info as the third argument."
+        }
+      ],
+      "wiring_checklist": [
+        {
+          "kind": "fn_call",
+          "file": "src/validate.rs",
+          "detail": "determine_parent_file is called in check_orphan_files with crate_info (not _crate_info) \u2014 the third argument was already being passed, only the parameter name changed"
+        }
+      ],
+      "type_reference": {
+        "determine_parent_file": "fn determine_parent_file(orphan_file: &str, crate_name: &str, crate_info: &CrateInfo) -> String"
+      },
+      "acceptance": [
+        "cargo test -p rust-workspace-map",
+        "cargo test -p rust-workspace-map --test integration_test",
+        "cargo clippy -p rust-workspace-map -- -D warnings"
+      ],
+      "depends_on": []
+    },
+    {
+      "id": "TASK-G4",
+      "kind": "direct",
+      "description": "Add a deeply nested orphan file fixture and an integration test verifying that recursive orphan detection (via walkdir) finds orphan .rs files at depth 2+ in the source tree.",
+      "files_in_scope": [
+        "tests/fixtures/bad-orphan/src/lib.rs",
+        "tests/fixtures/bad-orphan/src/sub/mod.rs",
+        "tests/fixtures/bad-orphan/src/sub/legal.rs",
+        "tests/fixtures/bad-orphan/src/sub/deep/orphan.rs",
+        "tests/integration_test.rs"
+      ],
+      "changes": [
+        {
+          "path": "tests/fixtures/bad-orphan/src/lib.rs",
+          "action": "modify",
+          "guidance": "Add the line 'pub mod sub;' to the existing lib.rs content. The existing comment '// root module \u2014 intentionally does NOT include \\'mod forgotten;\\'' must be preserved. The file should now declare exactly one submodule: 'pub mod sub;'. The file forgotten.rs remains undeclared (still an orphan)."
+        },
+        {
+          "path": "tests/fixtures/bad-orphan/src/sub/mod.rs",
+          "action": "create",
+          "guidance": "Create a minimal module file. It should contain: (1) 'pub mod legal;' to declare the sibling legal.rs, and (2) a small public function like 'pub fn helper() -> u32 { 42 }' so the module has at least one public item. Do NOT declare 'pub mod deep;' or 'pub mod deep::orphan;' \u2014 the deep/ directory must remain undeclared."
+        },
+        {
+          "path": "tests/fixtures/bad-orphan/src/sub/legal.rs",
+          "action": "create",
+          "guidance": "Create a minimal legal module file. It should contain a single public function: 'pub fn do_thing() -> bool { true }'. This file is declared by sub/mod.rs and is NOT an orphan \u2014 it serves as a control to verify that declared files are not flagged."
+        },
+        {
+          "path": "tests/fixtures/bad-orphan/src/sub/deep/orphan.rs",
+          "action": "create",
+          "guidance": "Create an orphan file at depth 2. It should contain a single public function: 'pub fn orphan_func() -> &'static str { \"I am an orphan\" }'. This file is NOT declared anywhere \u2014 no mod statement references it. The recursive walkdir must descend into sub/deep/ and discover this file. This is the key test target."
+        },
+        {
+          "path": "tests/integration_test.rs",
+          "action": "modify",
+          "guidance": "Add a new integration test function 'test_recursive_orphan_detection' following the existing test patterns (use binary_path(), Command::new(), assert exit code 2 for --validate, parse JSON, filter errors by kind). The test should:\n1. Run 'cargo run -- index --validate tests/fixtures/bad-orphan'.\n2. Assert exit code 2 (validation findings present).\n3. Parse the JSON output and extract the errors array.\n4. Filter errors to those with kind 'orphan_file'.\n5. Assert at least one orphan_file error exists.\n6. Assert at least one orphan_file error's 'file' field contains 'deep/orphan.rs' (the depth-2 orphan).\n7. Also assert the existing shallow orphan (forgotten.rs) is still detected (file field contains 'forgotten.rs').\n\nPlace the new test after the existing test_validate_dead_reexport_exits_2 test, keeping tests grouped by concern. Follow the exact patterns used by existing tests: extract_array helper, String::from_utf8_lossy, serde_json::from_str, filter with closure."
+        }
+      ],
+      "wiring_checklist": [
+        {
+          "kind": "pub_mod",
+          "file": "tests/fixtures/bad-orphan/src/lib.rs",
+          "detail": "pub mod sub; declaration added"
+        },
+        {
+          "kind": "pub_mod",
+          "file": "tests/fixtures/bad-orphan/src/sub/mod.rs",
+          "detail": "pub mod legal; declaration present; no declaration for deep or deep::orphan"
+        }
+      ],
+      "acceptance": [
+        "cargo test -p rust-workspace-map --test integration_test test_recursive_orphan_detection",
+        "cargo test -p rust-workspace-map --test integration_test test_validate_orphan_file_exits_2",
+        "cargo test -p rust-workspace-map --test integration_test",
+        "cargo clippy -p rust-workspace-map -- -D warnings"
+      ],
+      "depends_on": []
+    }
+  ]
+}

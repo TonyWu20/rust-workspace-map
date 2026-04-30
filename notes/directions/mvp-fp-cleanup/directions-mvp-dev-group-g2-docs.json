@@ -1,0 +1,141 @@
+{
+  "meta": {
+    "title": "mvp-fp-cleanup: Eliminate DeadReExport False Positives",
+    "source_branch": "mvp-dev"
+  },
+  "architecture_notes": [
+    "Single crate (rust-workspace-map v0.2.0, edition 2024). No new crates or modules introduced.",
+    "All changes fit in existing files: src/schema.rs, src/indexes.rs, src/validate.rs, README.md, tests/fixtures/bad-orphan/, tests/integration_test.rs.",
+    "G1 and G2 both modify check_dead_reexports in validate.rs. G1 adds a pre-check at the top of the per-re-export loop; G2 adds logic in the !symbols.contains_key branch. They touch different regions but share the same function body \u2014 implement sequentially (G1 first, then G2) to avoid merge conflicts.",
+    "SymbolEntry uses #[serde(rename_all = \"camelCase\")]. The new derive_attrs field will serialize as \"deriveAttrs\" in JSON output. This is consistent with all other SymbolEntry fields.",
+    "derive_attrs values are pre-sorted by extract_attrs (file_parser.rs line 481: derive.sort()). No additional sorting needed.",
+    "SymbolEntry uses bon::Builder. The new derive_attrs field must carry #[builder(default)] so existing builder call sites that omit it continue to compile.",
+    "All BTreeMap-based collections are sorted by key for deterministic output.",
+    "The existing cross-crate check at lines 148-151 of validate.rs (checking first_seg against crate_names) MUST NOT be removed. It handles cross-workspace-member re-exports that pass the G1 pre-check. G1 short-circuits before this check for external-crate paths; the existing check remains as a safety net for cross-workspace-member paths.",
+    "Paths throughout the codebase are workspace-relative strings. No absolute paths introduced.",
+    "Error handling: all new functions are pure predicates returning bool. No Result, no panics. Use early returns and conditionals.",
+    "Naming conventions: snake_case functions (is_*, check_*), descriptive variable names, test_<scenario> for tests.",
+    "Unit tests live in #[cfg(test)] mod tests within the same file. Integration tests invoke the compiled binary via std::process::Command.",
+    "Library code in this phase follows ch12-04 TDD: tests claim interfaces first via tdd_interface, then implementations evolve to meet them. See /Users/tony/programming/rust-development-pipeline/skills/elaborate-directions/references/tdd-pattern.md for the reference pattern."
+  ],
+  "known_pitfalls": [
+    "G1: crate_names alone is insufficient for bare-path check. A bare path like 'use utils::Helper' where 'utils' is both a workspace member name AND a top-level module of the current crate must be treated as internal (NOT skipped). Must also check crate_info.modules for top-level modules of the current crate.",
+    "G1: The existing cross-crate check (lines 148-151 of validate.rs) operates on resolved paths. G1 operates on the original unresolved import_path. They coexist: G1 runs first and short-circuits via continue for external crates; the existing check remains as a safety net for cross-workspace-member re-exports that G1 lets through (bare paths where first segment is a workspace member other than self, NOT a top-level module).",
+    "G2: derive_attrs is a straight copy of item.attrs.derive (already Vec<String> from extract_attrs). Do NOT re-extract from the AST or call extract_attrs again. The change in indexes.rs is a one-liner: .derive_attrs(item.attrs.derive.clone()).",
+    "G2: Same-module scoping is critical. The lookup key in is_derive_companion must use the re-export's module path (e.g., 'mycrate::sub::CellDocument'), not a global search. A pub use of FooBuilder in module bar only checks symbols in module bar.",
+    "G2: Lookup key format is 'module_path::prefix' where module_path is the canonical module path (e.g., 'mycrate::sub'). This matches how keys are constructed in indexes.rs: format!(\"{}::{}\", m.path, item.name).",
+    "G2: Prefix iteration must start from longest prefix (len(name)) and decrease. Shorter prefixes are less specific \u2014 a match on 'Cell' (prefix of 'CellDocumentBuilder') could be a different type. Longest-prefix-first minimizes false suppression.",
+    "G2: Private-base-type limitation is a known false negative, not a bug. Private structs with #[derive(bon::Builder)] that generate public builders cannot be suppressed because the base type is absent from the public-only symbol index. Document this in README; do NOT attempt to populate the index with private types.",
+    "G3: crate_info.root points to a file (e.g., 'src/lib.rs'), not a directory. Use .parent() to derive the src/ directory. Do NOT use .join(\"src\") \u2014 that would produce 'src/lib.rs/src'.",
+    "G3: The orphan_file parameter is already workspace-relative (stripped by path.strip_prefix(workspace_root) in check_orphan_files). The derived prefix from crate_info.root.parent() is also workspace-relative. The strip_prefix operation is correct.",
+    "G4: Modifying bad-orphan/src/lib.rs to add 'pub mod sub;' must preserve the existing orphan behavior \u2014 forgotten.rs must remain undeclared and still appear as an orphan. Verify the existing test_validate_orphan_file_exits_2 still passes after fixture changes.",
+    "G4: The deep orphan file (sub/deep/orphan.rs) must NOT be declared in any mod statement. sub/mod.rs declares 'pub mod legal;' but NOT 'pub mod deep;' and NOT 'pub mod deep::orphan;'.",
+    "Serde: SymbolEntry uses #[serde(rename_all = \"camelCase\")] \u2014 the new derive_attrs field will serialize as deriveAttrs. Do NOT add a separate rename annotation. The field-level #[serde(skip_serializing_if = \"Vec::is_empty\")] is sufficient.",
+    "Clippy: cargo clippy -D warnings must remain clean. Fix all warnings; do NOT add #[allow(...)] annotations.",
+    "Determinism: All unit test assertions must not depend on HashMap iteration order. Use BTreeMap for ordered collections when iteration order matters in tests. derive_attrs is already sorted by extract_attrs; no new ordering concerns."
+  ],
+  "task_groups": [
+    {
+      "group_id": "group-g2-docs",
+      "reason": "TASK-G2 modifies check_dead_reexports in the same function body that TASK-G1 touches, and adds the derive_attrs field plumbing. It must run after TASK-G1 lands to avoid merge conflicts on the for-loop body. TASK-README documents the G2 design after implementation is complete. Both tasks are sequentially dependent.",
+      "tasks": [
+        "TASK-G2",
+        "TASK-README"
+      ],
+      "depends_on_groups": [
+        "group-g1-g3-g4"
+      ]
+    }
+  ],
+  "tasks": [
+    {
+      "id": "TASK-G2",
+      "kind": "lib-tdd",
+      "description": "Add derive_attrs field to SymbolEntry, populate it during index construction, implement prefix-decomposition heuristic (is_derive_companion), and wire it into check_dead_reexports to suppress false DeadReExport findings for derive-generated companion types like bon::Builder.",
+      "files_in_scope": [
+        "src/schema.rs",
+        "src/indexes.rs",
+        "src/validate.rs"
+      ],
+      "changes": [
+        {
+          "path": "src/schema.rs",
+          "action": "modify",
+          "guidance": "Add a new field to the SymbolEntry struct (line ~414-420):\n\n```rust\n#[builder(default)]\n#[serde(skip_serializing_if = \"Vec::is_empty\")]\npub derive_attrs: Vec<String>,\n```\n\nPlace it after the `kind` field. The field uses:\n- #[builder(default)] so existing SymbolEntry::builder() calls without .derive_attrs() get an empty vec.\n- #[serde(skip_serializing_if = \"Vec::is_empty\")] to avoid bloating JSON output with empty arrays on every symbol.\n\nDue to the struct-level #[serde(rename_all = \"camelCase\")], this field serializes as \"deriveAttrs\" in JSON. This is correct and consistent \u2014 no additional annotations needed."
+        },
+        {
+          "path": "src/indexes.rs",
+          "action": "modify",
+          "guidance": "In the derive_from_crates function, in the fold closure where SymbolEntry is constructed (lines 56-62), add one line after .kind(item.kind.clone()):\n\n```rust\n.derive_attrs(item.attrs.derive.clone())\n```\n\nThis is a straight copy of item.attrs.derive which is already Vec<String> (extracted by extract_attrs in file_parser.rs). No AST re-parsing or re-extraction needed. The vec is pre-sorted by extract_attrs (file_parser.rs line 481: derive.sort()).\n\nThe existing builder calls in the test module at the bottom of indexes.rs do NOT need updating \u2014 #[builder(default)] on the new field means they continue to compile with the default empty vec."
+        },
+        {
+          "path": "src/validate.rs",
+          "action": "modify",
+          "guidance": "IMPLEMENTATION APPROACH (TDD cycle after data plumbing):\n\n0. PREREQUISITE: Ensure schema.rs and indexes.rs changes (above) compile with `cargo check` before starting the TDD cycle.\n\n1. RED: Write the test from tdd_interface.test_code into the existing #[cfg(test)] mod tests block. Run cargo test \u2014 it will fail because is_derive_companion does not exist yet.\n\n2. GREEN \u2014 Implement is_derive_companion:\n   - Add fn is_derive_companion(target_name: &str, module_path: &str, symbols: &BTreeMap<CanonicalPath, SymbolEntry>) -> bool above check_dead_reexports.\n   - Algorithm: iterate decreasing prefix lengths of target_name from len(target_name) down to 1. For each prefix P:\n     a. Construct the lookup key: CanonicalPath(format!(\"{}::{}\", module_path, P)).\n     b. Look up in symbols.\n     c. If found and symbol.derive_attrs is NOT empty \u2192 return true (suppress \u2014 this is a derive companion).\n     d. If found but symbol.derive_attrs IS empty \u2192 continue to shorter prefix (the base exists but has no derives, so this is not a derive-generated companion).\n     e. If not found \u2192 continue to shorter prefix.\n   - If the loop exhausts all prefixes without matching a derive-bearing base \u2192 return false (finding stands).\n   - Edge cases:\n     - Empty target_name: immediately return false.\n     - target_name equals a known symbol (prefix iteration reaches len=1 and checks the full name): if that symbol has derives, returns true; otherwise returns false. Correct behavior.\n\n3. GREEN \u2014 Wire into check_dead_reexports:\n   - In the DeadReExport branch (inside if !symbols.contains_key(&canonical)), before the findings.push() call:\n     - Extract target_name: canonical.0.rsplit(\"::\").next().unwrap_or(&canonical.0)\n     - Call is_derive_companion(target_name, &module.path, symbols)\n     - If true \u2192 continue (suppress the finding).\n   - The existing findings.push() for DeadReExport remains as the fallthrough.\n\n4. REFACTOR: Run cargo clippy -- -D warnings and fix any issues.\n\n5. Additional tests to add during refactor:\n   - Edge case: target_name is empty string \u2192 returns false.\n   - Edge case: module_path is empty string \u2192 returns false (defensive).\n   - Edge case: symbols map is empty \u2192 returns false.\n   - Verify that a base type whose derive_attrs contains multiple entries (e.g., [\"bon::Builder\", \"serde::Serialize\"]) still triggers suppression."
+        }
+      ],
+      "tdd_interface": {
+        "test_file": "src/validate.rs",
+        "test_module": "tests",
+        "test_fn_name": "test_is_derive_companion",
+        "test_code": "#[test]\nfn test_is_derive_companion() {\n    use std::collections::BTreeMap;\n    use crate::schema::{CanonicalPath, ItemKind, SymbolEntry};\n\n    let mut symbols: BTreeMap<CanonicalPath, SymbolEntry> = BTreeMap::new();\n\n    // Base type WITH derive attrs \u2014 prefix match should suppress companion\n    symbols.insert(\n        CanonicalPath::from(\"mycrate::sub::CellDocument\".to_string()),\n        SymbolEntry::builder()\n            .crate_name(\"mycrate\".to_string())\n            .module(\"mycrate::sub\".to_string())\n            .file(\"src/sub.rs\".to_string())\n            .line(10)\n            .kind(ItemKind::Struct)\n            .derive_attrs(vec![\"bon::Builder\".to_string()])\n            .build(),\n    );\n\n    // Base type WITHOUT derive attrs \u2014 prefix match should NOT suppress\n    symbols.insert(\n        CanonicalPath::from(\"mycrate::sub::PlainStruct\".to_string()),\n        SymbolEntry::builder()\n            .crate_name(\"mycrate\".to_string())\n            .module(\"mycrate::sub\".to_string())\n            .file(\"src/sub.rs\".to_string())\n            .line(20)\n            .kind(ItemKind::Struct)\n            .build(),\n    );\n\n    // Case 1: Companion suppressed \u2014 base type has non-empty derive_attrs\n    assert!(\n        is_derive_companion(\"CellDocumentBuilder\", \"mycrate::sub\", &symbols),\n        \"CellDocumentBuilder should be suppressed: CellDocument has derive_attrs\"\n    );\n\n    // Case 2: Companion NOT suppressed \u2014 base type has empty derive_attrs\n    assert!(\n        !is_derive_companion(\"PlainStructBuilder\", \"mycrate::sub\", &symbols),\n        \"PlainStructBuilder should NOT be suppressed: PlainStruct has no derive_attrs\"\n    );\n\n    // Case 3: Genuinely dead \u2014 no prefix matches any symbol\n    assert!(\n        !is_derive_companion(\"TotallyMissing\", \"mycrate::sub\", &symbols),\n        \"TotallyMissing should NOT be suppressed: no prefix match\"\n    );\n\n    // Case 4: Cross-module scope \u2014 base type exists but in a different module\n    assert!(\n        !is_derive_companion(\"CellDocumentBuilder\", \"mycrate::other\", &symbols),\n        \"cross-module lookup should NOT suppress \u2014 base is in mycrate::sub, not mycrate::other\"\n    );\n}",
+        "signature": "fn is_derive_companion(target_name: &str, module_path: &str, symbols: &BTreeMap<CanonicalPath, SymbolEntry>) -> bool",
+        "expected_behavior": "Returns true if target_name is a derive-generated companion type, meaning the DeadReExport finding should be suppressed. Decomposes target_name into decreasing prefixes, looking for a base type in the same module whose SymbolEntry has non-empty derive_attrs. Returns false if no such base type is found, the base type has empty derive_attrs, or a matching prefix exists in a different module (same-module scoping). Empty target_name returns false immediately."
+      },
+      "wiring_checklist": [
+        {
+          "kind": "type_annotation",
+          "file": "src/schema.rs",
+          "detail": "SymbolEntry has pub derive_attrs: Vec<String> field with #[builder(default)] and #[serde(skip_serializing_if = \"Vec::is_empty\")]"
+        },
+        {
+          "kind": "fn_call",
+          "file": "src/indexes.rs",
+          "detail": "SymbolEntry::builder() in derive_from_crates fold closure includes .derive_attrs(item.attrs.derive.clone())"
+        },
+        {
+          "kind": "fn_call",
+          "file": "src/validate.rs",
+          "detail": "is_derive_companion called in check_dead_reexports inside the !symbols.contains_key(&canonical) branch, before findings.push()"
+        }
+      ],
+      "type_reference": {
+        "SymbolEntry.derive_attrs": "#[builder(default)]\n#[serde(skip_serializing_if = \"Vec::is_empty\")]\npub derive_attrs: Vec<String>",
+        "is_derive_companion": "fn is_derive_companion(target_name: &str, module_path: &str, symbols: &BTreeMap<CanonicalPath, SymbolEntry>) -> bool"
+      },
+      "acceptance": [
+        "cargo check -p rust-workspace-map",
+        "cargo test -p rust-workspace-map test_is_derive_companion",
+        "cargo test -p rust-workspace-map",
+        "cargo test -p rust-workspace-map --test integration_test",
+        "cargo clippy -p rust-workspace-map -- -D warnings"
+      ],
+      "depends_on": [
+        "TASK-G1"
+      ]
+    },
+    {
+      "id": "TASK-README",
+      "kind": "direct",
+      "description": "Document the prefix-decomposition heuristic design rationale and the private-base-type limitation in README.md under the Validation Rules section.",
+      "files_in_scope": [
+        "README.md"
+      ],
+      "changes": [
+        {
+          "path": "README.md",
+          "action": "modify",
+          "guidance": "Add a new subsection under the existing validation rules documentation (or create a 'Validation Rules' section if one does not exist). The new content should cover:\n\n1. **Prefix-decomposition heuristic (derive-companion awareness):**\n   - Explain that DeadReExport false positives occur when derive macros (like bon::Builder) generate public companion types (e.g., CellDocumentBuilder) that get re-exported.\n   - Describe the heuristic: when a re-exported name is not found in the symbol index, the tool decomposes the name into decreasing prefixes looking for a base type in the same module with non-empty derive_attrs. If found, the finding is suppressed.\n   - Emphasize the advantages: zero hardcoded derive names, zero suffix lists, purely structural signal, automatically handles any ecosystem derive that generates named types.\n   - Note the conservative-recall tradeoff: the tool prefers a false negative (suppressing a genuinely-dead re-export whose base type coincidentally has derives) over a false positive (flagging every derive-generated companion).\n\n2. **Known limitation \u2014 private base types:**\n   - Document that a private struct with #[derive(bon::Builder)] generating a public builder cannot be suppressed by the heuristic, because the private base type is absent from the public-only symbol index.\n   - This is an accepted limitation \u2014 populating the index with private types would change the contract of --validate from 'public API surface' to 'all types', which is a separate concern.\n\nPlace the content in a logical location within README.md. Use clear headers and plain language suitable for end users of the tool. Keep the tone factual and documentation-oriented, not promotional."
+        }
+      ],
+      "wiring_checklist": [],
+      "acceptance": [
+        "cargo check -p rust-workspace-map",
+        "Manually verify the updated README content renders correctly \u2014 cargo check does not validate markdown"
+      ],
+      "depends_on": [
+        "TASK-G2"
+      ]
+    }
+  ]
+}
