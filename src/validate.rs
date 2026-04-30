@@ -5,13 +5,6 @@ use std::collections::HashSet;
 use std::path::Path;
 use walkdir::WalkDir;
 
-/// Run validation checks on the crate set.
-///
-/// Checks performed:
-/// - **Orphan files**: `.rs` files on disk not declared in any module tree
-/// - **Dead re-exports**: `pub use` to symbols not found in the symbol index
-///
-/// Returns a list of `ErrorEntry` findings (severity: Warning).
 /// Check whether an import path targets an external crate.
 ///
 /// Returns `true` if the path points to a crate that is not a workspace member
@@ -52,11 +45,11 @@ fn is_external_crate_re_export(
         return false;
     }
 
-    // Not a top-level module. If it's a workspace member, it's a cross-workspace
-    // re-export — let the existing cross-crate check handle it (return true to
-    // skip here so the downstream logic doesn't fire, but the cross-crate check
-    // below will also skip it).
-    if crate_names.contains(first_seg) {
+    // Not a top-level module. If it's a workspace member but NOT the current
+    // crate's own name, it's a cross-workspace re-export — return true so the
+    // downstream cross-crate check (line 219) handles it. If it IS the current
+    // crate's name, fall through to return false (internal).
+    if crate_names.contains(first_seg) && first_seg != crate_info.name {
         return true;
     }
 
