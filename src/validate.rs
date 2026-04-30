@@ -12,6 +12,65 @@ use walkdir::WalkDir;
 /// - **Dead re-exports**: `pub use` to symbols not found in the symbol index
 ///
 /// Returns a list of `ErrorEntry` findings (severity: Warning).
+/// Check whether an import path targets an external crate.
+///
+/// Returns `true` if the path points to a crate that is not a workspace member
+/// and not a top-level module of the current crate. Such re-exports should be
+/// skipped during dead-re-export checking because the symbol lives in an
+/// external crate's public API.
+#[must_use]
+fn is_external_crate_re_export(
+    import_path: &str,
+    crate_names: &HashSet<&str>,
+    crate_info: &CrateInfo,
+) -> bool {
+    // `self::` and `super::` are always internal to the current crate.
+    if import_path.starts_with("self::") || import_path.starts_with("super::") {
+        return false;
+    }
+
+    // `crate::` is always internal to the current crate.
+    if import_path.starts_with("crate::") {
+        return false;
+    }
+
+    // Bare path — check the first `::`-delimited segment.
+    let first_seg = import_path.split_once("::").map_or(import_path, |(seg, _)| seg);
+
+    // Single-segment bare path (no `::`) is treated as internal.
+    if !import_path.contains("::") {
+        return false;
+    }
+
+    // Check if the first segment is a top-level module of the current crate.
+    let is_top_level_module = crate_info
+        .modules
+        .iter()
+        .any(|m| m.path == format!("{}::{first_seg}", crate_info.name));
+
+    if is_top_level_module {
+        return false;
+    }
+
+    // Not a top-level module. If it's a workspace member, it's a cross-workspace
+    // re-export — let the existing cross-crate check handle it (return true to
+    // skip here so the downstream logic doesn't fire, but the cross-crate check
+    // below will also skip it).
+    if crate_names.contains(first_seg) {
+        return true;
+    }
+
+    // Neither a top-level module nor a workspace member: definitely external.
+    true
+}
+
+/// Run validation checks on the crate set.
+///
+/// Checks performed:
+/// - **Orphan files**: `.rs` files on disk not declared in any module tree
+/// - **Dead re-exports**: `pub use` to symbols not found in the symbol index
+///
+/// Returns a list of `ErrorEntry` findings (severity: Warning).
 #[must_use]
 pub fn validate(
     crates: &[CrateInfo],
@@ -141,6 +200,11 @@ fn check_dead_reexports(
                 continue;
             }
 
+            // Skip re-exports targeting external crates.
+            if is_external_crate_re_export(path, crate_names, crate_info) {
+                continue;
+            }
+
             // Parse the import path. Resolve 'crate::' prefix.
             let resolved = resolve_import_path(path, my_name, &module.path);
 
@@ -198,6 +262,171 @@ fn resolve_import_path(path: &str, crate_name: &str, module_path: &str) -> Strin
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashSet;
+    use crate::schema::{CrateInfo, DepInfo, CrateType, ModuleInfo, PackageInfo};
+
+    #[test]
+    fn test_is_external_crate_re_export() {
+        let crate_info = CrateInfo::builder()
+            .name("mycrate".to_string())
+            .root("src/lib.rs".to_string())
+            .package(
+                PackageInfo::builder()
+                    .name("mycrate".to_string())
+                    .version("0.1.0".to_string())
+                    .edition("2021".to_string())
+                    .crate_type(CrateType::Lib)
+                    .build(),
+            )
+            .modules(vec![
+                ModuleInfo::builder()
+                    .path("mycrate".to_string())
+                    .file("src/lib.rs".to_string())
+                    .visibility("pub".to_string())
+                    .build(),
+                ModuleInfo::builder()
+                    .path("mycrate::utils".to_string())
+                    .file("src/utils.rs".to_string())
+                    .visibility("pub".to_string())
+                    .build(),
+            ])
+            .deps(DepInfo::default())
+            .build();
+
+        let mut crate_names = HashSet::new();
+        crate_names.insert("mycrate");
+
+        // Bare path: "serde" is not a workspace member and not a top-level module → external
+        assert!(
+            is_external_crate_re_export("serde::Serialize", &crate_names, &crate_info),
+            "serde::Serialize should be external"
+        );
+
+        // Bare path: "utils" IS a top-level module of mycrate → internal
+        assert!(
+            !is_external_crate_re_export("utils::Helper", &crate_names, &crate_info),
+            "utils::Helper should be internal (utils is a top-level module)"
+        );
+
+        // crate:: prefix is always internal
+        assert!(
+            !is_external_crate_re_export("crate::sub::missing", &crate_names, &crate_info),
+            "crate:: path should always be internal"
+        );
+
+        // self:: prefix is always internal
+        assert!(
+            !is_external_crate_re_export("self::inner::Type", &crate_names, &crate_info),
+            "self:: path should always be internal"
+        );
+    }
+
+    #[test]
+    fn test_is_external_crate_re_export_super_prefix() {
+        let crate_info = CrateInfo::builder()
+            .name("mycrate".to_string())
+            .root("src/lib.rs".to_string())
+            .package(
+                PackageInfo::builder()
+                    .name("mycrate".to_string())
+                    .version("0.1.0".to_string())
+                    .edition("2021".to_string())
+                    .crate_type(CrateType::Lib)
+                    .build(),
+            )
+            .modules(vec![])
+            .deps(DepInfo::default())
+            .build();
+
+        let crate_names: HashSet<&str> = HashSet::new();
+
+        // super:: prefix is always internal regardless of workspace members.
+        assert!(
+            !is_external_crate_re_export("super::other::Thing", &crate_names, &crate_info),
+            "super:: path should always be internal"
+        );
+    }
+
+    #[test]
+    fn test_is_external_crate_re_export_single_segment() {
+        let crate_info = CrateInfo::builder()
+            .name("mycrate".to_string())
+            .root("src/lib.rs".to_string())
+            .package(
+                PackageInfo::builder()
+                    .name("mycrate".to_string())
+                    .version("0.1.0".to_string())
+                    .edition("2021".to_string())
+                    .crate_type(CrateType::Lib)
+                    .build(),
+            )
+            .modules(vec![])
+            .deps(DepInfo::default())
+            .build();
+
+        let crate_names: HashSet<&str> = HashSet::new();
+
+        // Single-segment bare path (no ::) is treated as internal.
+        assert!(
+            !is_external_crate_re_export("Foo", &crate_names, &crate_info),
+            "bare single-segment path should be internal"
+        );
+    }
+
+    #[test]
+    fn test_is_external_crate_re_export_cross_workspace() {
+        let crate_info = CrateInfo::builder()
+            .name("mycrate".to_string())
+            .root("src/lib.rs".to_string())
+            .package(
+                PackageInfo::builder()
+                    .name("mycrate".to_string())
+                    .version("0.1.0".to_string())
+                    .edition("2021".to_string())
+                    .crate_type(CrateType::Lib)
+                    .build(),
+            )
+            .modules(vec![])
+            .deps(DepInfo::default())
+            .build();
+
+        let mut crate_names = HashSet::new();
+        crate_names.insert("othercrate");
+        crate_names.insert("mycrate");
+
+        // "othercrate" is a workspace member but NOT a top-level module → external
+        // (G1 skips it; the existing cross-crate check below handles it).
+        assert!(
+            is_external_crate_re_export("othercrate::Thing", &crate_names, &crate_info),
+            "cross-workspace-member re-export should be external (passes G1)"
+        );
+    }
+
+    #[test]
+    fn test_is_external_crate_re_export_empty_path() {
+        let crate_info = CrateInfo::builder()
+            .name("mycrate".to_string())
+            .root("src/lib.rs".to_string())
+            .package(
+                PackageInfo::builder()
+                    .name("mycrate".to_string())
+                    .version("0.1.0".to_string())
+                    .edition("2021".to_string())
+                    .crate_type(CrateType::Lib)
+                    .build(),
+            )
+            .modules(vec![])
+            .deps(DepInfo::default())
+            .build();
+
+        let crate_names: HashSet<&str> = HashSet::new();
+
+        // Empty string is not a valid path; treat as internal (defensive).
+        assert!(
+            !is_external_crate_re_export("", &crate_names, &crate_info),
+            "empty path should be treated as internal"
+        );
+    }
 
     #[test]
     fn resolve_import_path_crate_prefix() {

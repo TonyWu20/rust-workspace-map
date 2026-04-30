@@ -470,6 +470,58 @@ fn test_validate_dead_reexport_exits_2() {
 }
 
 #[test]
+fn test_recursive_orphan_detection() {
+    let fixture = std::path::Path::new("tests/fixtures/bad-orphan");
+
+    let output = Command::new(&binary_path())
+        .arg("index")
+        .arg("--validate")
+        .arg(fixture)
+        .output()
+        .expect("failed to execute binary");
+
+    assert_eq!(
+        output.status.code().unwrap(),
+        2,
+        "validation should exit 2 for orphan files"
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value =
+        serde_json::from_str(&stdout).expect("output is not valid JSON");
+
+    let errors = extract_array(&json, "errors");
+
+    let orphan_errors: Vec<_> = errors
+        .iter()
+        .filter(|e| e["kind"].as_str().unwrap() == "orphan_file")
+        .collect();
+
+    assert!(
+        !orphan_errors.is_empty(),
+        "should have orphan_file errors"
+    );
+
+    // The depth-2 orphan at sub/deep/orphan.rs must be detected
+    let has_deep_orphan = orphan_errors.iter().any(|e| {
+        e["file"].as_str().unwrap().contains("deep/orphan.rs")
+    });
+    assert!(
+        has_deep_orphan,
+        "should detect the deeply nested orphan at sub/deep/orphan.rs"
+    );
+
+    // The shallow orphan forgotten.rs must still be detected
+    let has_forgotten = orphan_errors.iter().any(|e| {
+        e["file"].as_str().unwrap().contains("forgotten.rs")
+    });
+    assert!(
+        has_forgotten,
+        "should still detect the shallow orphan forgotten.rs"
+    );
+}
+
+#[test]
 fn test_index_no_validate_exits_0() {
     let fixture = std::path::Path::new("tests/fixtures/bad-orphan");
 
