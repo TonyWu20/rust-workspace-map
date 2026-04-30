@@ -59,6 +59,7 @@ pub fn derive_from_crates(
                         .file(m.file.clone())
                         .line(item.line)
                         .kind(item.kind.clone())
+                        .derive_attrs(item.attrs.derive.clone())
                         .build(),
                 );
                 nidx.entry(item.name.clone()).or_default().push(canonical);

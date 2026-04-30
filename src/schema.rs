@@ -417,6 +417,10 @@ pub struct SymbolEntry {
     pub file: String,
     pub line: usize,
     pub kind: ItemKind,
+
+    #[builder(default)]
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub derive_attrs: Vec<String>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, bon::Builder)]

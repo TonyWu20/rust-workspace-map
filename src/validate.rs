@@ -218,6 +218,11 @@ fn check_dead_reexports(
 
             // Look up in the symbols map.
             if !symbols.contains_key(&canonical) {
+                // Check if this is a derive-generated companion type (e.g. bon::Builder).
+                let target_name = canonical.0.rsplit("::").next().unwrap_or(&canonical.0);
+                if is_derive_companion(target_name, &module.path, symbols) {
+                    continue;
+                }
                 findings.push(ErrorEntry::builder()
                     .file(module.file.clone())
                     .line(re_export.line)
@@ -234,6 +239,35 @@ fn check_dead_reexports(
     }
 
     findings
+}
+
+/// Check if `target_name` is a derive-generated companion type.
+///
+/// Decomposes `target_name` into decreasing prefixes, looking for a base type
+/// in the same module whose `SymbolEntry` has non-empty `derive_attrs`. If found,
+/// this is a derive-generated companion and the `DeadReExport` finding should be
+/// suppressed.
+fn is_derive_companion(
+    target_name: &str,
+    module_path: &str,
+    symbols: &std::collections::BTreeMap<CanonicalPath, crate::schema::SymbolEntry>,
+) -> bool {
+    if target_name.is_empty() {
+        return false;
+    }
+
+    for len in (1..=target_name.len()).rev() {
+        let prefix = &target_name[..len];
+        let key = CanonicalPath::from(format!("{module_path}::{prefix}"));
+        if let Some(entry) = symbols.get(&key)
+            && !entry.derive_attrs.is_empty()
+        {
+            return true;
+        }
+        // Base exists but has no derives — not a derive-generated companion.
+    }
+
+    false
 }
 
 /// Resolve an import path by expanding `crate::`, `self::`, `super::` prefixes.
@@ -261,7 +295,7 @@ fn resolve_import_path(path: &str, crate_name: &str, module_path: &str) -> Strin
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashSet;
+    use std::collections::{BTreeMap, HashSet};
     use crate::schema::{CrateInfo, DepInfo, CrateType, ModuleInfo, PackageInfo};
 
     #[test]
@@ -424,6 +458,128 @@ mod tests {
         assert!(
             !is_external_crate_re_export("", &crate_names, &crate_info),
             "empty path should be treated as internal"
+        );
+    }
+
+    #[test]
+    fn test_is_derive_companion() {
+        use crate::schema::{ItemKind, SymbolEntry};
+
+        let mut symbols: BTreeMap<CanonicalPath, SymbolEntry> = BTreeMap::new();
+
+        // Base type WITH derive attrs — prefix match should suppress companion
+        symbols.insert(
+            CanonicalPath::from("mycrate::sub::CellDocument".to_string()),
+            SymbolEntry::builder()
+                .crate_name("mycrate".to_string())
+                .module("mycrate::sub".to_string())
+                .file("src/sub.rs".to_string())
+                .line(10)
+                .kind(ItemKind::Struct)
+                .derive_attrs(vec!["bon::Builder".to_string()])
+                .build(),
+        );
+
+        // Base type WITHOUT derive attrs — prefix match should NOT suppress
+        symbols.insert(
+            CanonicalPath::from("mycrate::sub::PlainStruct".to_string()),
+            SymbolEntry::builder()
+                .crate_name("mycrate".to_string())
+                .module("mycrate::sub".to_string())
+                .file("src/sub.rs".to_string())
+                .line(20)
+                .kind(ItemKind::Struct)
+                .build(),
+        );
+
+        // Case 1: Companion suppressed — base type has non-empty derive_attrs
+        assert!(
+            is_derive_companion("CellDocumentBuilder", "mycrate::sub", &symbols),
+            "CellDocumentBuilder should be suppressed: CellDocument has derive_attrs"
+        );
+
+        // Case 2: Companion NOT suppressed — base type has empty derive_attrs
+        assert!(
+            !is_derive_companion("PlainStructBuilder", "mycrate::sub", &symbols),
+            "PlainStructBuilder should NOT be suppressed: PlainStruct has no derive_attrs"
+        );
+
+        // Case 3: Genuinely dead — no prefix matches any symbol
+        assert!(
+            !is_derive_companion("TotallyMissing", "mycrate::sub", &symbols),
+            "TotallyMissing should NOT be suppressed: no prefix match"
+        );
+
+        // Case 4: Cross-module scope — base type exists but in a different module
+        assert!(
+            !is_derive_companion("CellDocumentBuilder", "mycrate::other", &symbols),
+            "cross-module lookup should NOT suppress — base is in mycrate::sub, not mycrate::other"
+        );
+    }
+
+    #[test]
+    fn test_is_derive_companion_edge_cases() {
+        use crate::schema::{ItemKind, SymbolEntry};
+
+        // Edge case: empty target_name → returns false
+        assert!(
+            !is_derive_companion("", "mycrate::sub", &BTreeMap::new()),
+            "empty target_name should return false"
+        );
+
+        // Edge case: empty symbols map → returns false
+        let symbols: BTreeMap<CanonicalPath, SymbolEntry> = BTreeMap::new();
+        assert!(
+            !is_derive_companion("FooBuilder", "mycrate::sub", &symbols),
+            "empty symbols map should return false"
+        );
+
+        // Edge case: base type with multiple derive_attrs still triggers suppression
+        let mut symbols = BTreeMap::new();
+        symbols.insert(
+            CanonicalPath::from("mycrate::sub::MyType".to_string()),
+            SymbolEntry::builder()
+                .crate_name("mycrate".to_string())
+                .module("mycrate::sub".to_string())
+                .file("src/sub.rs".to_string())
+                .line(1)
+                .kind(ItemKind::Struct)
+                .derive_attrs(vec!["bon::Builder".to_string(), "serde::Serialize".to_string()])
+                .build(),
+        );
+        assert!(
+            is_derive_companion("MyTypeBuilder", "mycrate::sub", &symbols),
+            "multi-derive base should still trigger suppression"
+        );
+
+        // Edge case: prefix match on shorter prefix — longest-prefix-first wins
+        let mut symbols = BTreeMap::new();
+        symbols.insert(
+            CanonicalPath::from("mycrate::sub::Cell".to_string()),
+            SymbolEntry::builder()
+                .crate_name("mycrate".to_string())
+                .module("mycrate::sub".to_string())
+                .file("src/sub.rs".to_string())
+                .line(5)
+                .kind(ItemKind::Struct)
+                .build(), // No derives
+        );
+        symbols.insert(
+            CanonicalPath::from("mycrate::sub::CellDocument".to_string()),
+            SymbolEntry::builder()
+                .crate_name("mycrate".to_string())
+                .module("mycrate::sub".to_string())
+                .file("src/sub.rs".to_string())
+                .line(10)
+                .kind(ItemKind::Struct)
+                .derive_attrs(vec!["bon::Builder".to_string()])
+                .build(),
+        );
+        // "CellDocumentBuilder" → longest prefix is "CellDocumentBuilder" (not found),
+        // then "CellDocumentBui..." decreasing... eventually "CellDocument" found with derives → true
+        assert!(
+            is_derive_companion("CellDocumentBuilder", "mycrate::sub", &symbols),
+            "longest-prefix match on derive-bearing base should suppress"
         );
     }
 
