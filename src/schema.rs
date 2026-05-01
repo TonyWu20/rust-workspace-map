@@ -1,6 +1,52 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
+// ── Path newtypes for flat indexes ──────────────────────────────────────
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(transparent)]
+pub struct CanonicalPath(pub String);
+
+impl std::fmt::Display for CanonicalPath {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+impl AsRef<str> for CanonicalPath {
+    fn as_ref(&self) -> &str {
+        &self.0
+    }
+}
+
+impl From<String> for CanonicalPath {
+    fn from(s: String) -> Self {
+        Self(s)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(transparent)]
+pub struct WorkspaceRelativePath(pub String);
+
+impl std::fmt::Display for WorkspaceRelativePath {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+impl AsRef<str> for WorkspaceRelativePath {
+    fn as_ref(&self) -> &str {
+        &self.0
+    }
+}
+
+impl From<String> for WorkspaceRelativePath {
+    fn from(s: String) -> Self {
+        Self(s)
+    }
+}
+
 // ── Error type ──────────────────────────────────────────────────────────
 
 #[derive(Debug, thiserror::Error)]
@@ -47,6 +93,10 @@ pub struct Config {
 
     /// If Some, write JSON to this file instead of stdout.
     pub output_path: Option<PathBuf>,
+
+    /// When true, run validation checks (orphan files, dead re-exports).
+    #[builder(default)]
+    pub validate: bool,
 }
 
 // ── Crate type ──────────────────────────────────────────────────────────
@@ -68,6 +118,15 @@ pub struct WorkspaceMap {
     pub workspace: WorkspaceInfo,
     pub crates: Vec<CrateInfo>,
     pub cross_references: CrossReferences,
+
+    #[builder(default)]
+    pub symbols: BTreeMap<CanonicalPath, SymbolEntry>,
+
+    #[builder(default)]
+    pub name_index: BTreeMap<String, Vec<CanonicalPath>>,
+
+    #[builder(default)]
+    pub files: BTreeMap<WorkspaceRelativePath, FileEntry>,
 
     #[builder(default)]
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -181,7 +240,7 @@ pub struct PublicItem {
     pub impls: Vec<ImplInfo>,
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum ItemKind {
     Struct,
@@ -281,6 +340,23 @@ pub struct TypeRef {
     pub exported_by: Vec<String>,
 }
 
+// ── Diagnostic kind ─────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DiagnosticKind {
+    OrphanedModule,
+    TomlParseError,
+    MissingCrateRoots,
+    ModuleTreeError,
+    SynParseError,
+    MissingWorkspaceSection,
+    GlobPatternError,
+    MemberNotFound,
+    OrphanFile,
+    DeadReExport,
+}
+
 // ── Error severity ─────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
@@ -331,6 +407,31 @@ pub struct SubmoduleDecl {
     pub is_test: bool,
 }
 
+// ── Flat index entry types ──────────────────────────────────────────────
+
+#[derive(Debug, Clone, serde::Serialize, bon::Builder)]
+#[serde(rename_all = "camelCase")]
+pub struct SymbolEntry {
+    pub crate_name: String,
+    pub module: String,
+    pub file: String,
+    pub line: usize,
+    pub kind: ItemKind,
+
+    #[builder(default)]
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub derive_attrs: Vec<String>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, bon::Builder)]
+#[serde(rename_all = "camelCase")]
+pub struct FileEntry {
+    pub module_path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parent_module_file: Option<String>,
+    pub is_crate_root: bool,
+}
+
 // ── Error reporting ─────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, serde::Serialize, bon::Builder)]
@@ -341,7 +442,7 @@ pub struct ErrorEntry {
     pub line: usize,
     pub message: String,
     pub severity: ErrorSeverity,
-    pub kind: String,
+    pub kind: DiagnosticKind,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub context: Option<ErrorContext>,
     #[serde(skip_serializing_if = "Option::is_none")]

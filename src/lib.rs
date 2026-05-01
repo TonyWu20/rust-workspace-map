@@ -3,9 +3,12 @@
 pub mod cargo_info;
 pub mod cross_refs;
 pub mod file_parser;
+pub mod indexes;
+pub mod lookup;
 pub mod module_tree;
 pub mod render;
 pub mod schema;
+pub mod validate;
 pub mod workspace;
 
 pub use schema::Config;
@@ -13,17 +16,16 @@ pub use schema::Config;
 use anyhow::Context;
 use rayon::prelude::*;
 use schema::{
-    CrateInfo, CrateType, ErrorEntry, ErrorSeverity, ModuleInfo, WorkspaceInfo,
-    WorkspaceMap,
+    CrateInfo, CrateType, DiagnosticKind, ErrorEntry, ErrorSeverity, ModuleInfo,
+    WorkspaceInfo, WorkspaceMap,
 };
 use std::path::Path;
 
-/// Run the full workspace mapping pipeline.
+/// Build a `WorkspaceMap` from the given config, without rendering.
 ///
-/// 1. Discover workspace root and member crates.
-/// 2. Process each crate in parallel (Cargo.toml parsing + module tree).
-/// 3. Compute cross-crate references.
-/// 4. Render JSON to stdout or the configured output file.
+/// This function contains all pipeline logic up to and including
+/// `WorkspaceMap` construction — workspace discovery, per-crate processing,
+/// cross-refs computation, index derivation, optional validation, and map building.
 ///
 /// # Errors
 ///
@@ -31,7 +33,7 @@ use std::path::Path;
 /// Cargo.toml is missing a `[workspace]` section, member crates cannot be
 /// parsed, or the JSON output cannot be written.
 #[allow(clippy::too_many_lines)]
-pub fn run(config: &Config) -> anyhow::Result<()> {
+pub fn build_map(config: &Config) -> anyhow::Result<WorkspaceMap> {
     let workspace_root = workspace::find_workspace_root(&config.workspace_path)?;
     let member_dirs = workspace::enumerate_members(&workspace_root)?;
 
@@ -50,7 +52,7 @@ pub fn run(config: &Config) -> anyhow::Result<()> {
                         .file(cargo_toml.to_string_lossy().to_string())
                         .message(format!("failed to parse Cargo.toml: {e}"))
                         .severity(ErrorSeverity::Error)
-                        .kind("toml_parse_error".to_string())
+                        .kind(DiagnosticKind::TomlParseError)
                         .cause(e.to_string())
                         .build());
                     return (None, crate_errors);
@@ -63,7 +65,7 @@ pub fn run(config: &Config) -> anyhow::Result<()> {
                     .file(dir.to_string_lossy().to_string())
                     .message("no crate entry points found".to_string())
                     .severity(ErrorSeverity::Warning)
-                    .kind("missing_crate_roots".to_string())
+                    .kind(DiagnosticKind::MissingCrateRoots)
                     .build());
                 return (None, crate_errors);
             }
@@ -85,14 +87,7 @@ pub fn run(config: &Config) -> anyhow::Result<()> {
                 collected_errors.extend(e);
             }
             for err in collected_errors {
-                if err.kind.is_empty() {
-                    crate_errors.push(ErrorEntry {
-                        kind: "module_tree_error".to_string(),
-                        ..err
-                    });
-                } else {
-                    crate_errors.push(err);
-                }
+                crate_errors.push(err);
             }
 
             // Relativize all paths to the workspace root.
@@ -130,10 +125,12 @@ pub fn run(config: &Config) -> anyhow::Result<()> {
     let mut crate_infos: Vec<CrateInfo> = Vec::new();
 
     for (info, errs) in results {
+        // Extend errors in both branches before checking info.
+        // `errs` is moved by `extend` — this is fine because results is consumed by the for loop (move iteration).
         if let Some(ci) = info {
-            crate_errors.extend(errs);
             crate_infos.push(ci);
         }
+        crate_errors.extend(errs);
     }
 
     // Deterministic sort by crate name.
@@ -141,13 +138,22 @@ pub fn run(config: &Config) -> anyhow::Result<()> {
 
     let cross_refs = cross_refs::compute(&mut crate_infos);
 
+    // Derive flat indexes from crate info.
+    let (symbols, name_index, files) = indexes::derive_from_crates(&crate_infos);
+
+    // Run validation if enabled.
+    if config.validate {
+        let validate_findings = validate::validate(&crate_infos, &symbols, &workspace_root);
+        crate_errors.extend(validate_findings);
+    }
+
     let workspace_name = workspace_root
         .file_name()
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_default();
 
     let workspace_info = WorkspaceInfo::builder()
-        .root(".".to_string())
+        .root(workspace_root.to_string_lossy().to_string())
         .workspace_name(workspace_name)
         .build();
 
@@ -155,9 +161,30 @@ pub fn run(config: &Config) -> anyhow::Result<()> {
         .workspace(workspace_info)
         .crates(crate_infos)
         .cross_references(cross_refs)
+        .symbols(symbols)
+        .name_index(name_index)
+        .files(files)
         .errors(crate_errors)
         .workspace_root(workspace_root.clone())
         .build();
+
+    Ok(map)
+}
+
+/// Run the full workspace mapping pipeline.
+///
+/// 1. Discover workspace root and member crates.
+/// 2. Process each crate in parallel (Cargo.toml parsing + module tree).
+/// 3. Compute cross-crate references.
+/// 4. Render JSON to stdout or the configured output file.
+///
+/// # Errors
+///
+/// Returns an error if the workspace root cannot be found, the workspace
+/// Cargo.toml is missing a `[workspace]` section, member crates cannot be
+/// parsed, or the JSON output cannot be written.
+pub fn run(config: &Config) -> anyhow::Result<()> {
+    let map = build_map(config)?;
 
     if let Some(ref output_path) = config.output_path {
         let file = std::fs::File::create(output_path)

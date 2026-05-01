@@ -1,6 +1,6 @@
 [package]
 name = "rust-workspace-map"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 
 [dependencies]
@@ -15,6 +15,7 @@ bon = "3"
 thiserror = "2"
 glob = "0.3"
 proc-macro2 = { version = "1", features = ["span-locations"] }
+walkdir = "2.5.0"
 
 [dev-dependencies]
 tempfile = "3"

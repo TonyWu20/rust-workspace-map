@@ -1,0 +1,367 @@
+{
+  "branch": "mvp-dev",
+  "base": "main",
+  "commits": [
+    {
+      "hash": "1438041",
+      "message": "merge impl/mvp-fix: recursive orphan walk via walkdir + test cleanup"
+    },
+    {
+      "hash": "ed6dc9f",
+      "message": "fix(mvp-fix): recursive orphan walk via walkdir + test cleanup"
+    },
+    {
+      "hash": "0c1bfbb",
+      "message": "fix(mvp): resolve all clippy -D warnings"
+    },
+    {
+      "hash": "d663b9a",
+      "message": "feat(mvp): T9-T15: flat indexes, cross-refs re-keying, validation, CLI subcommands, lookup, tests"
+    },
+    {
+      "hash": "d14b866",
+      "message": "feat(mvp): T1-T8 + T7: schema newtypes, DiagnosticKind, bugfixes, import migration"
+    },
+    {
+      "hash": "7d51fe9",
+      "message": "docs(mvp): add coding style section to MVP plan"
+    },
+    {
+      "hash": "44dc853",
+      "message": "docs(mvp): apply third-review amendments to MVP plan"
+    },
+    {
+      "hash": "587969c",
+      "message": "review(mvp): apply second-review structural amendments to MVP plan"
+    },
+    {
+      "hash": "b0f3a95",
+      "message": "Add project memory about architecture note"
+    },
+    {
+      "hash": "783f4c3",
+      "message": "docs: add current codebase architecture note"
+    },
+    {
+      "hash": "aec1b1c",
+      "message": "docs(mvp): tighten MVP plan after KISS / first-principles review"
+    },
+    {
+      "hash": "958b62d",
+      "message": "Clean up, prepare for mvp implementation phase"
+    }
+  ],
+  "files": [
+    {
+      "path": "CLAUDE.md",
+      "lines_added": 2,
+      "lines_removed": 0,
+      "added_functions": [],
+      "removed_functions": [],
+      "modified_functions": [],
+      "added_imports": [],
+      "has_trailing_newline": true
+    },
+    {
+      "path": "Cargo.lock",
+      "lines_added": 29,
+      "lines_removed": 0,
+      "added_functions": [],
+      "removed_functions": [],
+      "modified_functions": [],
+      "added_imports": [],
+      "has_trailing_newline": true
+    },
+    {
+      "path": "Cargo.toml",
+      "lines_added": 1,
+      "lines_removed": 0,
+      "added_functions": [],
+      "removed_functions": [],
+      "modified_functions": [],
+      "added_imports": [],
+      "has_trailing_newline": true
+    },
+    {
+      "path": "notes/architecture-current.md",
+      "lines_added": 223,
+      "lines_removed": 0,
+      "added_functions": [],
+      "removed_functions": [],
+      "modified_functions": [],
+      "added_imports": [],
+      "has_trailing_newline": true
+    },
+    {
+      "path": "plans/mvp/MVP_PLAN.md",
+      "lines_added": 304,
+      "lines_removed": 0,
+      "added_functions": [
+        "CanonicalPath",
+        "WorkspaceRelativePath",
+        "WorkspaceMap",
+        "SymbolEntry",
+        "FileEntry",
+        "DiagnosticKind"
+      ],
+      "removed_functions": [],
+      "modified_functions": [],
+      "added_imports": [],
+      "has_trailing_newline": true
+    },
+    {
+      "path": "plans/mvp/MVP_PLAN_review.md",
+      "lines_added": 238,
+      "lines_removed": 0,
+      "added_functions": [],
+      "removed_functions": [],
+      "modified_functions": [],
+      "added_imports": [],
+      "has_trailing_newline": true
+    },
+    {
+      "path": "plans/mvp/MVP_PLAN_review2.md",
+      "lines_added": 224,
+      "lines_removed": 0,
+      "added_functions": [],
+      "removed_functions": [],
+      "modified_functions": [],
+      "added_imports": [],
+      "has_trailing_newline": true
+    },
+    {
+      "path": "src/cross_refs.rs",
+      "lines_added": 36,
+      "lines_removed": 14,
+      "added_functions": [],
+      "removed_functions": [],
+      "modified_functions": [],
+      "added_imports": [],
+      "has_trailing_newline": true
+    },
+    {
+      "path": "src/file_parser.rs",
+      "lines_added": 3,
+      "lines_removed": 3,
+      "added_functions": [],
+      "removed_functions": [],
+      "modified_functions": [],
+      "added_imports": [],
+      "has_trailing_newline": true
+    },
+    {
+      "path": "src/indexes.rs",
+      "lines_added": 285,
+      "lines_removed": 0,
+      "added_functions": [
+        "SymbolsIndex",
+        "NameIndex",
+        "FilesIndex",
+        "derive_from_crates",
+        "make_crate",
+        "make_module",
+        "make_item",
+        "symbol_index_single_root_item",
+        "symbol_index_nested_module_item",
+        "name_index_multi_crate_collision",
+        "files_excludes_inline_module",
+        "files_parent_module_file"
+      ],
+      "removed_functions": [],
+      "modified_functions": [],
+      "added_imports": [
+        "std::collections::BTreeMap",
+        "super::*"
+      ],
+      "has_trailing_newline": true
+    },
+    {
+      "path": "src/lib.rs",
+      "lines_added": 47,
+      "lines_removed": 20,
+      "added_functions": [
+        "build_map",
+        "run"
+      ],
+      "removed_functions": [
+        "run"
+      ],
+      "modified_functions": [],
+      "added_imports": [],
+      "has_trailing_newline": true
+    },
+    {
+      "path": "src/lookup.rs",
+      "lines_added": 205,
+      "lines_removed": 0,
+      "added_functions": [
+        "SymbolLookupResult",
+        "DisambiguationHint",
+        "FileLookupResult",
+        "lookup_symbol",
+        "lookup_file",
+        "make_test_map",
+        "lookup_symbol_found",
+        "lookup_symbol_not_found",
+        "lookup_file_found",
+        "lookup_file_not_found"
+      ],
+      "removed_functions": [],
+      "modified_functions": [],
+      "added_imports": [
+        "super::*"
+      ],
+      "has_trailing_newline": true
+    },
+    {
+      "path": "src/main.rs",
+      "lines_added": 153,
+      "lines_removed": 23,
+      "added_functions": [
+        "Command",
+        "main"
+      ],
+      "removed_functions": [
+        "main"
+      ],
+      "modified_functions": [],
+      "added_imports": [
+        "clap::{Parser, Subcommand}"
+      ],
+      "has_trailing_newline": true
+    },
+    {
+      "path": "src/module_tree.rs",
+      "lines_added": 15,
+      "lines_removed": 12,
+      "added_functions": [],
+      "removed_functions": [],
+      "modified_functions": [],
+      "added_imports": [
+        "crate::schema::{DiagnosticKind, ErrorContext, ErrorEntry, ErrorSeverity, FileInfo, ModuleInfo, SubmoduleDecl}"
+      ],
+      "has_trailing_newline": true
+    },
+    {
+      "path": "src/schema.rs",
+      "lines_added": 99,
+      "lines_removed": 2,
+      "added_functions": [
+        "CanonicalPath",
+        "std",
+        "fmt",
+        "AsRef",
+        "as_ref",
+        "From",
+        "from",
+        "WorkspaceRelativePath",
+        "DiagnosticKind",
+        "SymbolEntry",
+        "FileEntry"
+      ],
+      "removed_functions": [],
+      "modified_functions": [],
+      "added_imports": [],
+      "has_trailing_newline": true
+    },
+    {
+      "path": "src/validate.rs",
+      "lines_added": 242,
+      "lines_removed": 0,
+      "added_functions": [
+        "validate",
+        "check_orphan_files",
+        "determine_parent_file",
+        "check_dead_reexports",
+        "resolve_import_path",
+        "resolve_import_path_crate_prefix",
+        "resolve_import_path_self_prefix",
+        "resolve_import_path_super_prefix",
+        "resolve_import_path_super_root",
+        "resolve_import_path_bare"
+      ],
+      "removed_functions": [],
+      "modified_functions": [],
+      "added_imports": [
+        "std::collections::HashSet",
+        "std::path::Path",
+        "walkdir::WalkDir",
+        "super::*"
+      ],
+      "has_trailing_newline": true
+    },
+    {
+      "path": "tests/fixtures/bad-dead-reexport/Cargo.toml",
+      "lines_added": 7,
+      "lines_removed": 0,
+      "added_functions": [],
+      "removed_functions": [],
+      "modified_functions": [],
+      "added_imports": [],
+      "has_trailing_newline": true
+    },
+    {
+      "path": "tests/fixtures/bad-dead-reexport/src/lib.rs",
+      "lines_added": 1,
+      "lines_removed": 0,
+      "added_functions": [],
+      "removed_functions": [],
+      "modified_functions": [],
+      "added_imports": [],
+      "has_trailing_newline": true
+    },
+    {
+      "path": "tests/fixtures/bad-orphan/Cargo.toml",
+      "lines_added": 7,
+      "lines_removed": 0,
+      "added_functions": [],
+      "removed_functions": [],
+      "modified_functions": [],
+      "added_imports": [],
+      "has_trailing_newline": true
+    },
+    {
+      "path": "tests/fixtures/bad-orphan/src/forgotten.rs",
+      "lines_added": 1,
+      "lines_removed": 0,
+      "added_functions": [
+        "not_declared"
+      ],
+      "removed_functions": [],
+      "modified_functions": [],
+      "added_imports": [],
+      "has_trailing_newline": true
+    },
+    {
+      "path": "tests/fixtures/bad-orphan/src/lib.rs",
+      "lines_added": 1,
+      "lines_removed": 0,
+      "added_functions": [],
+      "removed_functions": [],
+      "modified_functions": [],
+      "added_imports": [],
+      "has_trailing_newline": true
+    },
+    {
+      "path": "tests/integration_test.rs",
+      "lines_added": 225,
+      "lines_removed": 11,
+      "added_functions": [
+        "run_index",
+        "test_validate_orphan_file_exits_2",
+        "test_validate_dead_reexport_exits_2",
+        "test_index_no_validate_exits_0",
+        "test_lookup_symbol_found",
+        "test_lookup_symbol_not_found",
+        "test_lookup_file",
+        "test_orphaned_module_serde_regression"
+      ],
+      "removed_functions": [
+        "run_binary"
+      ],
+      "modified_functions": [],
+      "added_imports": [],
+      "has_trailing_newline": true
+    }
+  ]
+}

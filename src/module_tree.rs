@@ -1,5 +1,5 @@
 use crate::file_parser;
-use crate::schema::{ErrorContext, ErrorEntry, ErrorSeverity, FileInfo, ModuleInfo, SubmoduleDecl};
+use crate::schema::{DiagnosticKind, ErrorContext, ErrorEntry, ErrorSeverity, FileInfo, ModuleInfo, SubmoduleDecl};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
@@ -30,7 +30,7 @@ pub fn build_module_tree(
 ) -> (Vec<ModuleInfo>, Vec<crate::schema::ErrorEntry>) {
 
     let mut visited = HashSet::new();
-    let parent_dir = crate_root.parent().unwrap_or(crate_root);
+    let parent_dir = crate_root.parent().unwrap_or_else(|| Path::new("."));
 
     let parsed = file_parser::parse_file(crate_root);
     let mut errors: Vec<ErrorEntry> = Vec::new();
@@ -121,7 +121,7 @@ fn process_submodule(
             .file(String::new())
             .message(format!("orphaned module: {module_path}"))
             .severity(ErrorSeverity::Warning)
-            .kind("orphaned_module".to_string())
+            .kind(DiagnosticKind::OrphanedModule)
             .context(ErrorContext::builder()
                 .module_path(module_path.to_string())
                 .build())
@@ -158,7 +158,7 @@ fn process_submodule(
             .file(String::new())
             .message(format!("orphaned module: {module_path}"))
             .severity(ErrorSeverity::Warning)
-            .kind("orphaned_module".to_string())
+            .kind(DiagnosticKind::OrphanedModule)
             .context(ErrorContext::builder()
                 .module_path(module_path.to_string())
                 .build())
@@ -180,7 +180,7 @@ fn process_submodule(
     if let Some(ref err) = parsed.parse_error {
         errors.push(crate::file_parser::build_parse_error_entry(file_path, err));
     }
-    process_module_info(
+    let modules = process_module_info(
         module_path,
         file_path,
         visibility,
@@ -189,7 +189,8 @@ fn process_submodule(
         file_path.parent().unwrap_or(file_path),
         visited,
         &mut errors,
-    )
+    );
+    (modules, errors)
 }
 
 fn process_module_items(
@@ -207,7 +208,9 @@ fn process_module_items(
         submodules: file_parser::extract_submodules(items),
         impls: file_parser::extract_impls(items),
     };
-    process_module_info(module_path, file_path, visibility, &file_info, items, parent_dir, visited, &mut Vec::new())
+    let mut errs = Vec::new();
+    let modules = process_module_info(module_path, file_path, visibility, &file_info, items, parent_dir, visited, &mut errs);
+    (modules, errs)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -220,7 +223,7 @@ fn process_module_info(
     _parent_dir: &Path,
     visited: &mut HashSet<PathBuf>,
     errors: &mut Vec<ErrorEntry>,
-) -> (Vec<ModuleInfo>, Vec<crate::schema::ErrorEntry>) {
+) -> Vec<ModuleInfo> {
     let mut modules = vec![build_module_info(
         module_path,
         file_path,
@@ -237,7 +240,7 @@ fn process_module_info(
         }
         let child_path = format!("{}::{}", module_path, sub.name);
         let child_dir = file_path.parent().unwrap_or(file_path);
-        let (child_modules, child_errors) = process_submodule(
+        let child_modules = process_submodule(
             &child_path,
             &sub.name,
             items,
@@ -245,11 +248,11 @@ fn process_module_info(
             file_path,
             visited,
         );
-        errors.extend(child_errors);
-        modules.extend(child_modules);
+        errors.extend(child_modules.1);
+        modules.extend(child_modules.0);
     }
 
-    (modules, errors.clone())
+    modules
 }
 
 // ── Tests ───────────────────────────────────────────────────────────────

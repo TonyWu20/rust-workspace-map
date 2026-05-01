@@ -1,0 +1,810 @@
+{
+  "meta": {
+    "title": "MVP: Flat indexes, validation, subcommands, and pipeline integration",
+    "source_branch": "mvp-dev"
+  },
+  "architecture_notes": [
+    "All new output structs use #[derive(bon::Builder)], consistent with existing codebase idiom.",
+    "serde camelCase for structs (#[serde(rename_all = \"camelCase\")]), snake_case for enum variants (#[serde(rename_all = \"snake_case\")]).",
+    "Newtypes CanonicalPath and WorkspaceRelativePath are used as BTreeMap keys in WorkspaceMap fields, with #[serde(transparent)] so JSON keys serialize as plain strings.",
+    "Single binary with clap subcommands (index, lookup) — no separate binaries. Exit codes: 0=clean, 1=tool error, 2=validation found issues.",
+    "All diagnostics (existing errors + new OrphanFile/DeadReExport warnings) flow through the single WorkspaceMap.errors: Vec<ErrorEntry> channel with typed DiagnosticKind.",
+    "Conservative recall for validation rules: false negatives over false positives. Glob re-exports and external-crate re-exports are skipped. Transitive re-export chains are not traced.",
+    "Flat indexes (symbols, name_index, files) provide O(1) lookup for LLM agents — one hashmap access, no tree traversal.",
+    "Iterator pipelines over mutable-accumulator for-loops in indexes.rs: symbols and name_index constructed via flat_map -> fold.",
+    "build_map() function extracted from run() separates map construction from rendering, enabling the lookup subcommand to reuse construction without re-rendering.",
+    "No new crate dependencies. serde, bon, clap, syn, rayon, tempfile are all already in Cargo.toml."
+  ],
+  "known_pitfalls": [
+    "DiagnosticKind serde contract: JSON output must use snake_case strings (e.g. \"orphaned_module\", \"dead_re_export\"). Use #[serde(rename_all = \"snake_case\")] at enum level. The existing integration test asserts kind == \"orphaned_module\" (string) — this must still pass after migration.",
+    "Multiple tasks modify src/lib.rs (T5, T7, T8, T9, T11, T12). Implement in dependency order to avoid merge conflicts. The areas touched are mostly disjoint (T5: for-loop at lines 132-137, T7: builder at lines 149-152, T8: .kind() calls throughout, T9: after cross_refs::compute, T11: after index derivation, T12: function extraction) but the subagent for each task must read the current file state before editing.",
+    "Integration test flag day: all 10 existing tests use the bare-path CLI form. After T12 (CLI refactor), the bare-path form is removed. Tests will fail until T15 rewrites them. Plan accordingly: T12 acceptance is cargo check + cargo test --lib only; integration tests are deferred to T15.",
+    "cross_references.types keys change from short names (\"Task\") to canonical paths (\"core::Task\"). Any pipeline code or test that directly indexes crossReferences.types by short name will break. The lookup --symbol path uses name_index and is unaffected.",
+    "Exit code precedence in main.rs: if build_map() returns Err, exit 1 (tool error). If build_map() succeeds and --validate was set and any ErrorEntry has OrphanFile or DeadReExport kind with Warning severity, exit 2. Otherwise exit 0. The precedence matters: tool error > validation findings.",
+    "Inline module detection in indexes.rs depends on depth-first ordering from build_module_tree. The heuristic 'first module encountered per file path is primary; subsequent are inline' holds for the current implementation but would silently break if traversal order changes. Document this assumption in a code comment in indexes.rs.",
+    "process_submodule at module_tree.rs line ~183 currently discards the returned modules (calls process_module_info but ignores the return value). The errors.clone() fix (T6) MUST also capture and extend those modules — this is a pre-existing bug that the signature change makes visible at compile time.",
+    "The CanonicalPath and WorkspaceRelativePath newtypes must implement serde::Serialize and serde::Deserialize with #[serde(transparent)] for correct BTreeMap key serialization. Without transparent, the JSON would nest the inner String inside an object.",
+    "derive_from_crates in indexes.rs is a pure function — it takes &[CrateInfo] and returns BTreeMaps. It performs no I/O and no second AST traversal. Unit-test it with hand-constructed CrateInfo values (same pattern as cross_refs.rs tests using make_crate()).",
+    "Validation rules in validate.rs accept pre-computed indexes as parameters (the symbols BTreeMap for DeadReExport lookup). Do NOT have validate() call derive_from_crates() internally — that would duplicate work."
+  ],
+  "task_groups": [
+    {
+      "group_id": "group-schema-newtypes",
+      "reason": "Adds CanonicalPath and WorkspaceRelativePath newtypes with all trait impls — shared foundation used by symbols and files indexes",
+      "tasks": [
+        "T1"
+      ],
+      "depends_on_groups": []
+    },
+    {
+      "group_id": "group-schema-diagnostic",
+      "reason": "Adds DiagnosticKind enum — foundation for typed error kinds across all modules",
+      "tasks": [
+        "T2"
+      ],
+      "depends_on_groups": []
+    },
+    {
+      "group_id": "group-schema-structs",
+      "reason": "Adds SymbolEntry and FileEntry structs — data types for flat indexes",
+      "tasks": [
+        "T3"
+      ],
+      "depends_on_groups": []
+    },
+    {
+      "group_id": "group-schema-integration",
+      "reason": "Migrates ErrorEntry.kind to DiagnosticKind, extends WorkspaceMap with flat index fields (using newtype keys), extends Config with validate field — integrates all new types into existing structures",
+      "tasks": [
+        "T4"
+      ],
+      "depends_on_groups": [
+        "group-schema-newtypes",
+        "group-schema-diagnostic",
+        "group-schema-structs"
+      ]
+    },
+    {
+      "group_id": "group-bugfixes",
+      "reason": "Three isolated bug fixes (dropped errors, O(n^2) clone, hardcoded root) — independent of schema changes, touch different regions of lib.rs and module_tree.rs",
+      "tasks": [
+        "T5",
+        "T6",
+        "T7"
+      ],
+      "depends_on_groups": []
+    },
+    {
+      "group_id": "group-emit-migration",
+      "reason": "Migrates all .kind(\"string\") emit-sites to .kind(DiagnosticKind::Variant) across lib.rs, module_tree.rs, and file_parser.rs — single concern spread across multiple files",
+      "tasks": [
+        "T8"
+      ],
+      "depends_on_groups": [
+        "group-schema-integration"
+      ]
+    },
+    {
+      "group_id": "group-indexes",
+      "reason": "Creates src/indexes.rs with derive_from_crates() pure function and wires it into the lib.rs pipeline — first new module",
+      "tasks": [
+        "T9"
+      ],
+      "depends_on_groups": [
+        "group-schema-integration"
+      ]
+    },
+    {
+      "group_id": "group-cross-refs",
+      "reason": "Re-keys cross_references.types map from short symbol name to canonical path — independent of indexes but shares canonical-path construction logic",
+      "tasks": [
+        "T10"
+      ],
+      "depends_on_groups": []
+    },
+    {
+      "group_id": "group-validate",
+      "reason": "Creates src/validate.rs with OrphanFile and DeadReExport validation rules and wires into the pipeline — depends on flat indexes for DeadReExport lookups",
+      "tasks": [
+        "T11"
+      ],
+      "depends_on_groups": [
+        "group-indexes"
+      ]
+    },
+    {
+      "group_id": "group-cli-refactor",
+      "reason": "Refactors main.rs to clap subcommands (index/lookup), removes bare-path form, extracts build_map() from run() — major structural change touching both main.rs and lib.rs",
+      "tasks": [
+        "T12"
+      ],
+      "depends_on_groups": [
+        "group-indexes",
+        "group-validate",
+        "group-bugfixes",
+        "group-emit-migration"
+      ]
+    },
+    {
+      "group_id": "group-lookup",
+      "reason": "Creates src/lookup.rs with pure lookup functions and wires the lookup subcommand — depends on CLI structure and flat indexes",
+      "tasks": [
+        "T13"
+      ],
+      "depends_on_groups": [
+        "group-cli-refactor",
+        "group-indexes"
+      ]
+    },
+    {
+      "group_id": "group-test-fixtures",
+      "reason": "Creates bad-orphan/ and bad-dead-reexport/ fixture directories under tests/fixtures/ — static test data, no code changes",
+      "tasks": [
+        "T14"
+      ],
+      "depends_on_groups": []
+    },
+    {
+      "group_id": "group-integration-tests",
+      "reason": "Rewrites all existing integration tests for the index subcommand flag day and adds new validate/lookup tests — depends on the full binary being functional",
+      "tasks": [
+        "T15"
+      ],
+      "depends_on_groups": [
+        "group-cli-refactor",
+        "group-lookup",
+        "group-test-fixtures",
+        "group-cross-refs"
+      ]
+    },
+    {
+      "group_id": "group-pipeline-integration",
+      "reason": "Updates pipeline skill/agent documentation and performs real-world dry-run — final verification steps, no code changes in rust-workspace-map",
+      "tasks": [
+        "T16",
+        "T17"
+      ],
+      "depends_on_groups": [
+        "group-integration-tests"
+      ]
+    }
+  ],
+  "tasks": [
+    {
+      "id": "T1",
+      "description": "Add CanonicalPath and WorkspaceRelativePath newtype wrappers to src/schema.rs with all required trait implementations",
+      "files_in_scope": [
+        "src/schema.rs"
+      ],
+      "changes": [
+        {
+          "path": "src/schema.rs",
+          "action": "modify",
+          "guidance": "Add two newtype structs near the top of the file, before the output types. Define pub struct CanonicalPath(pub String) and pub struct WorkspaceRelativePath(pub String). For each, derive Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash. Implement the following traits manually or via derive macros: (1) Display — delegates to self.0.fmt(f); (2) AsRef<str> — returns &self.0; (3) From<String> — wraps the String; (4) serde::Serialize using #[serde(transparent)] — critical for correct BTreeMap key serialization; (5) serde::Deserialize using #[serde(transparent)]. Do NOT add any other methods or trait impls beyond these. Place the newtypes after the existing imports but before the Error enum."
+        }
+      ],
+      "wiring_checklist": [
+        {
+          "kind": "type_annotation",
+          "file": "src/schema.rs",
+          "detail": "CanonicalPath must derive Serialize/Deserialize with #[serde(transparent)]"
+        },
+        {
+          "kind": "type_annotation",
+          "file": "src/schema.rs",
+          "detail": "WorkspaceRelativePath must derive Serialize/Deserialize with #[serde(transparent)]"
+        }
+      ],
+      "type_reference": {
+        "CanonicalPath": "#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)] pub struct CanonicalPath(#[serde(transparent)] pub String);",
+        "WorkspaceRelativePath": "#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)] pub struct WorkspaceRelativePath(#[serde(transparent)] pub String);"
+      },
+      "acceptance": [
+        "cargo check"
+      ],
+      "depends_on": []
+    },
+    {
+      "id": "T2",
+      "description": "Add DiagnosticKind enum with 10 variants replacing all existing string-error-kind values plus two new validation variants",
+      "files_in_scope": [
+        "src/schema.rs"
+      ],
+      "changes": [
+        {
+          "path": "src/schema.rs",
+          "action": "modify",
+          "guidance": "Add a new pub enum DiagnosticKind before the ErrorEntry struct. Include exactly 10 variants: OrphanedModule, TomlParseError, MissingCrateRoots, ModuleTreeError, SynParseError, MissingWorkspaceSection, GlobPatternError, MemberNotFound, OrphanFile, DeadReExport. Derive Debug, Clone, Copy, PartialEq, Eq, serde::Serialize. Apply #[serde(rename_all = \"snake_case\")] at the enum level — this ensures all variants serialize as snake_case strings matching the current string literal values. Do NOT use per-variant #[serde(rename)] attributes; the enum-level rename_all covers all cases cleanly. Place the enum near the ErrorSeverity enum for logical grouping."
+        }
+      ],
+      "wiring_checklist": [
+        {
+          "kind": "type_annotation",
+          "file": "src/schema.rs",
+          "detail": "DiagnosticKind must use #[serde(rename_all = \"snake_case\")] at enum level, not per-variant renames"
+        }
+      ],
+      "type_reference": {
+        "DiagnosticKind": "#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)] #[serde(rename_all = \"snake_case\")] pub enum DiagnosticKind { OrphanedModule, TomlParseError, MissingCrateRoots, ModuleTreeError, SynParseError, MissingWorkspaceSection, GlobPatternError, MemberNotFound, OrphanFile, DeadReExport }"
+      },
+      "acceptance": [
+        "cargo check"
+      ],
+      "depends_on": []
+    },
+    {
+      "id": "T3",
+      "description": "Add SymbolEntry and FileEntry structs to src/schema.rs with bon::Builder derive",
+      "files_in_scope": [
+        "src/schema.rs"
+      ],
+      "changes": [
+        {
+          "path": "src/schema.rs",
+          "action": "modify",
+          "guidance": "Add two new structs before the WorkspaceMap struct. For SymbolEntry: derive Debug, Clone, serde::Serialize, bon::Builder with #[serde(rename_all = \"camelCase\")]. Fields: crate_name: String, module: String, file: String, line: usize, kind: ItemKind. For FileEntry: derive Debug, Clone, serde::Serialize, bon::Builder with #[serde(rename_all = \"camelCase\")]. Fields: module_path: String, parent_module_file: Option<String> (with #[serde(skip_serializing_if = \"Option::is_none\")]), is_crate_root: bool. Do NOT add any fields beyond these — no crate_name, submodules, exports on FileEntry (those live in the hierarchical view via module_path join). No Confidence, ImportSite, ReExportSite fields."
+        }
+      ],
+      "wiring_checklist": [
+        {
+          "kind": "type_annotation",
+          "file": "src/schema.rs",
+          "detail": "SymbolEntry must derive bon::Builder"
+        },
+        {
+          "kind": "type_annotation",
+          "file": "src/schema.rs",
+          "detail": "FileEntry.parent_module_file must have #[serde(skip_serializing_if = \"Option::is_none\")]"
+        }
+      ],
+      "type_reference": {
+        "SymbolEntry": "pub struct SymbolEntry { pub crate_name: String, pub module: String, pub file: String, pub line: usize, pub kind: ItemKind }",
+        "FileEntry": "pub struct FileEntry { pub module_path: String, pub parent_module_file: Option<String>, pub is_crate_root: bool }"
+      },
+      "acceptance": [
+        "cargo check"
+      ],
+      "depends_on": []
+    },
+    {
+      "id": "T4",
+      "description": "Migrate ErrorEntry.kind from String to DiagnosticKind, extend WorkspaceMap with flat index BTreeMap fields using newtype keys, and extend Config with validate field",
+      "files_in_scope": [
+        "src/schema.rs"
+      ],
+      "changes": [
+        {
+          "path": "src/schema.rs",
+          "action": "modify",
+          "guidance": "Three coordinated changes to existing types. (1) In ErrorEntry: change the 'kind' field type from String to DiagnosticKind. Remove any String-related serde attributes on this field — DiagnosticKind handles serialization via its own serde rename_all. (2) In WorkspaceMap: add three new BTreeMap fields before the existing 'errors' field, all with #[builder(default)]. Field 'symbols' has type BTreeMap<CanonicalPath, SymbolEntry>. Field 'name_index' has type BTreeMap<String, Vec<CanonicalPath>> — keys are short names like \"Task\", values are sorted lists of canonical paths. Field 'files' has type BTreeMap<WorkspaceRelativePath, FileEntry>. Do NOT add serialization skip attributes on these fields — they should appear in JSON output with their newtype keys transparently serialized as strings. (3) In Config: add a new field 'validate: bool' with #[builder(default)] after the existing output_path field. This defaults to false, making validation opt-in."
+        }
+      ],
+      "wiring_checklist": [
+        {
+          "kind": "type_annotation",
+          "file": "src/schema.rs",
+          "detail": "ErrorEntry.kind must be DiagnosticKind, not String"
+        },
+        {
+          "kind": "type_annotation",
+          "file": "src/schema.rs",
+          "detail": "WorkspaceMap.symbols must be BTreeMap<CanonicalPath, SymbolEntry>"
+        },
+        {
+          "kind": "type_annotation",
+          "file": "src/schema.rs",
+          "detail": "WorkspaceMap.name_index must be BTreeMap<String, Vec<CanonicalPath>>"
+        },
+        {
+          "kind": "type_annotation",
+          "file": "src/schema.rs",
+          "detail": "WorkspaceMap.files must be BTreeMap<WorkspaceRelativePath, FileEntry>"
+        },
+        {
+          "kind": "type_annotation",
+          "file": "src/schema.rs",
+          "detail": "Config.validate must be bool with #[builder(default)]"
+        }
+      ],
+      "type_reference": {
+        "ErrorEntry.kind": "pub kind: DiagnosticKind",
+        "WorkspaceMap.symbols": "#[builder(default)] pub symbols: BTreeMap<CanonicalPath, SymbolEntry>",
+        "WorkspaceMap.name_index": "#[builder(default)] pub name_index: BTreeMap<String, Vec<CanonicalPath>>",
+        "WorkspaceMap.files": "#[builder(default)] pub files: BTreeMap<WorkspaceRelativePath, FileEntry>",
+        "Config.validate": "#[builder(default)] pub validate: bool"
+      },
+      "acceptance": [
+        "cargo check"
+      ],
+      "depends_on": [
+        "T1",
+        "T2",
+        "T3"
+      ]
+    },
+    {
+      "id": "T5",
+      "description": "Fix the dropped-errors bug at lib.rs lines 132-137 where the None branch of the crate-results drain loop silently discards errors from failed crates",
+      "files_in_scope": [
+        "src/lib.rs"
+      ],
+      "changes": [
+        {
+          "path": "src/lib.rs",
+          "action": "modify",
+          "guidance": "In the run() function, locate the for-loop that drains results into crate_infos (currently: 'for (info, errs) in results { if let Some(ci) = info { crate_errors.extend(errs); crate_infos.push(ci); } }'). Move the 'crate_errors.extend(errs);' call BEFORE the if-let, so it executes in both branches (Some and None). The errs vec is moved by extend on first use — this is fine because results is consumed by the for loop (move iteration). No clone needed. After the fix, the loop body should be: first extend errors, then conditionally push the CrateInfo. The rest of run() stays unchanged."
+        }
+      ],
+      "wiring_checklist": [],
+      "acceptance": [
+        "cargo check",
+        "cargo test --lib"
+      ],
+      "depends_on": []
+    },
+    {
+      "id": "T6",
+      "description": "Fix the O(n^2) errors.clone() at module_tree.rs line 252 by changing process_module_info to return only Vec<ModuleInfo>, fix the incidental module-drop bug in process_submodule, and fix the fragile unwrap_or at line 33",
+      "files_in_scope": [
+        "src/module_tree.rs"
+      ],
+      "changes": [
+        {
+          "path": "src/module_tree.rs",
+          "action": "modify",
+          "guidance": "Three coordinated changes. (1) Change process_module_info's return type from (Vec<ModuleInfo>, Vec<ErrorEntry>) to just Vec<ModuleInfo>. Remove the return tuple — at line 252, return only 'modules' instead of '(modules, errors.clone())'. The errors parameter (&mut Vec<ErrorEntry>) already accumulates errors for all callers. (2) In process_module_items (line 210): replace the '&mut Vec::new()' pattern with a local 'let mut errs = Vec::new();' variable, pass '&mut errs' to process_module_info, capture the returned Vec<ModuleInfo>, and return '(modules, errs)' as the tuple. (3) In process_submodule (line 183): the call to process_module_info currently discards its return value with 'let _ = process_module_info(...);' — this is a pre-existing bug that drops modules. Change this to capture the returned Vec<ModuleInfo> and extend the caller's modules vec with it. The returned modules from process_module_info at this call site must be added to the modules accumulator. (4) Fix the fragile unwrap_or at line 33: change 'crate_root.parent().unwrap_or(crate_root)' to 'crate_root.parent().unwrap_or_else(|| Path::new(\".\"))' so that if parent() returns None, the fallback is a valid relative path rather than reusing the file path as a directory."
+        }
+      ],
+      "wiring_checklist": [
+        {
+          "kind": "fn_call",
+          "file": "src/module_tree.rs",
+          "detail": "process_module_info signature must return Vec<ModuleInfo> only, not a tuple with ErrorEntry"
+        },
+        {
+          "kind": "fn_call",
+          "file": "src/module_tree.rs",
+          "detail": "process_submodule must capture and extend modules from process_module_info instead of discarding them"
+        }
+      ],
+      "acceptance": [
+        "cargo check",
+        "cargo test --lib"
+      ],
+      "depends_on": []
+    },
+    {
+      "id": "T7",
+      "description": "Fix WorkspaceInfo.root from hardcoded \".\" to the discovered workspace root path in lib.rs",
+      "files_in_scope": [
+        "src/lib.rs"
+      ],
+      "changes": [
+        {
+          "path": "src/lib.rs",
+          "action": "modify",
+          "guidance": "In the run() function, locate the WorkspaceInfo::builder() call (around line 149-152). Change the .root(\".\".to_string()) line to use .root(workspace_root.to_string_lossy().to_string()) instead. The workspace_root variable is already available in scope — it is the PathBuf returned by find_workspace_root(). This changes the JSON output: 'root' will now contain the actual filesystem path instead of \".\". The existing integration test assertion on json[\"workspace\"][\"root\"] == \".\" will need updating (handled in T15)."
+        }
+      ],
+      "wiring_checklist": [],
+      "acceptance": [
+        "cargo check"
+      ],
+      "depends_on": []
+    },
+    {
+      "id": "T8",
+      "description": "Migrate all .kind(\"string\") emit-sites to use DiagnosticKind enum variants across lib.rs, module_tree.rs, and file_parser.rs",
+      "files_in_scope": [
+        "src/lib.rs",
+        "src/module_tree.rs",
+        "src/file_parser.rs"
+      ],
+      "changes": [
+        {
+          "path": "src/lib.rs",
+          "action": "modify",
+          "guidance": "Find all ErrorEntry builder calls that set .kind(\"...\"). Replace each string literal with the corresponding DiagnosticKind variant. The existing strings and their replacements: \"toml_parse_error\" -> DiagnosticKind::TomlParseError, \"missing_crate_roots\" -> DiagnosticKind::MissingCrateRoots, \"module_tree_error\" -> DiagnosticKind::ModuleTreeError. There are emit-sites at: the Cargo.toml parse error handler (around line 53), the missing crate roots handler (around line 66), and the module tree error fallback (around line 90). Remove the .to_string() call after each .kind() argument since DiagnosticKind implements Copy. Ensure the import of DiagnosticKind is added to the use statement at the top of the file."
+        },
+        {
+          "path": "src/module_tree.rs",
+          "action": "modify",
+          "guidance": "Find all ErrorEntry builder calls that set .kind(\"orphaned_module\"). Replace with .kind(DiagnosticKind::OrphanedModule). There are two emit-sites: one in process_submodule for the 'mod_item not found' case, and one for the 'file_path resolution failed' case. Remove .to_string() after the kind argument. Add DiagnosticKind to the imports from crate::schema at the top of the file."
+        },
+        {
+          "path": "src/file_parser.rs",
+          "action": "modify",
+          "guidance": "In the build_parse_error_entry function, change .kind(\"syn_parse_error\".to_string()) to .kind(DiagnosticKind::SynParseError). Remove .to_string(). Add DiagnosticKind to the imports from crate::schema at the top of the file."
+        }
+      ],
+      "wiring_checklist": [
+        {
+          "kind": "fn_call",
+          "file": "src/lib.rs",
+          "detail": "All .kind() calls in lib.rs must use DiagnosticKind variants, not string literals"
+        },
+        {
+          "kind": "fn_call",
+          "file": "src/module_tree.rs",
+          "detail": "Both .kind() calls in module_tree.rs must use DiagnosticKind::OrphanedModule"
+        },
+        {
+          "kind": "fn_call",
+          "file": "src/file_parser.rs",
+          "detail": "build_parse_error_entry must use DiagnosticKind::SynParseError"
+        }
+      ],
+      "acceptance": [
+        "cargo check",
+        "cargo test --lib"
+      ],
+      "depends_on": [
+        "T4"
+      ]
+    },
+    {
+      "id": "T9",
+      "description": "Create src/indexes.rs with derive_from_crates() pure function and wire it into the lib.rs pipeline",
+      "files_in_scope": [
+        "src/indexes.rs",
+        "src/lib.rs"
+      ],
+      "changes": [
+        {
+          "path": "src/indexes.rs",
+          "action": "create",
+          "guidance": "Create a new module file. Define one public function: #[must_use] pub fn derive_from_crates(crates: &[CrateInfo]) -> (BTreeMap<CanonicalPath, SymbolEntry>, BTreeMap<String, Vec<CanonicalPath>>, BTreeMap<WorkspaceRelativePath, FileEntry>). Import CrateInfo, SymbolEntry, FileEntry, ModuleInfo, CanonicalPath, WorkspaceRelativePath from crate::schema. Implement the symbols and name_index construction using an iterator pipeline: crates.iter().flat_map(|c| c.modules.iter().flat_map(|m| m.public_items.iter().map(move |item| (c, m, item)))).fold(accumulator, |(mut syms, mut nidx), (c, m, item)| { ... }). The canonical key format is format!(\"{}::{}\", m.path, item.name). For the root module, m.path is the crate name (e.g., \"core\"), producing \"core::Task\". Construct SymbolEntry via builder. For name_index, push the CanonicalPath to the Vec for the short name (item.name). Sort name_index values by canonical path for determinism. Implement the files construction with a for-loop (not iterator, due to accumulator dependency for inline detection): iterate crates (sorted by name) then modules (depth-first order). Skip modules where file == \"<unresolved>\". For each file path, check if already in the accumulator — if so, skip (inline module, shares parent's file). Otherwise, determine parent_module_file by walking crate.modules to find the entry whose .path matches the parent module path (strip the last \"::name\" segment from the current module's path). For crate root modules, parent_module_file is None. Set is_crate_root to true when module.path == crate.name. Insert FileEntry into the map keyed by WorkspaceRelativePath(module.file.clone()). Add a code comment documenting that inline detection relies on depth-first traversal order from build_module_tree. Include a #[cfg(test)] module with unit tests using hand-constructed CrateInfo values (follow the pattern from cross_refs.rs tests using a make_crate helper). Test: single crate root-level item, nested module item, multi-crate name collision (name_index has 2 entries), inline module excluded from files, parent_module_file None for root and Some for submodules."
+        },
+        {
+          "path": "src/lib.rs",
+          "action": "modify",
+          "guidance": "Add 'pub mod indexes;' to the module declarations (alphabetically, between file_parser and module_tree). In the run() function, after the cross_refs::compute() call and before the WorkspaceMap::builder() call, add: 'let (symbols, name_index, files) = indexes::derive_from_crates(&crate_infos);'. Then add .symbols(symbols).name_index(name_index).files(files) to the WorkspaceMap::builder() chain. Import CanonicalPath and WorkspaceRelativePath if needed for type annotations (though the destructuring should infer types)."
+        }
+      ],
+      "wiring_checklist": [
+        {
+          "kind": "pub_mod",
+          "file": "src/lib.rs",
+          "detail": "indexes"
+        },
+        {
+          "kind": "fn_call",
+          "file": "src/lib.rs",
+          "detail": "indexes::derive_from_crates called after cross_refs::compute, results passed to WorkspaceMap::builder"
+        }
+      ],
+      "type_reference": {
+        "derive_from_crates": "#[must_use] pub fn derive_from_crates(crates: &[CrateInfo]) -> (BTreeMap<CanonicalPath, SymbolEntry>, BTreeMap<String, Vec<CanonicalPath>>, BTreeMap<WorkspaceRelativePath, FileEntry>)"
+      },
+      "acceptance": [
+        "cargo check",
+        "cargo test --lib"
+      ],
+      "depends_on": [
+        "T4"
+      ]
+    },
+    {
+      "id": "T10",
+      "description": "Re-key cross_references.types map from short symbol names to fully-qualified canonical paths in cross_refs::compute()",
+      "files_in_scope": [
+        "src/cross_refs.rs"
+      ],
+      "changes": [
+        {
+          "path": "src/cross_refs.rs",
+          "action": "modify",
+          "guidance": "In the compute() function, modify the crate_exports construction: instead of collecting (item.name, kind) pairs, collect the canonical path as (format!(\"{}::{}\", module.path, item.name), kind). This means changing the flat_map to iterate modules and capture module.path alongside each public item. The crate_exports map type stays BTreeMap<String, Vec<(String, String)>> but the first String is now the canonical path. Update the types_map initialization loop: keys are now canonical paths (e.g., \"core::Task\") instead of short names. Update the cross-crate import detection: when looking up types_map for an imported symbol, the current code uses the last segment of the import path (symbol variable at line ~67). After re-keying, we need to match the last segment against types_map entries whose key ends with \"::last_segment\". The simplest approach: iterate types_map keys, find those ending with \"::\" + symbol, and update their imported_by. Alternatively, build a reverse lookup (short_name -> Vec<canonical_path>) during initialization, then use that to find matching TypeRef entries. Update the inline unit tests: the assertion 'refs.types.contains_key(\"Task\")' must change to use the canonical path (depends on module path in test fixtures — currently module path is \"\" so the canonical path would be \"::Task\" or just \"Task\" depending on the test helper). Fix the test helper make_crate to set a proper module path, or update assertions to match the actual canonical path format. The compute_empty test assertion may also need updating."
+        }
+      ],
+      "wiring_checklist": [
+        {
+          "kind": "fn_call",
+          "file": "src/cross_refs.rs",
+          "detail": "crate_exports keys must use canonical paths (module.path::item.name)"
+        },
+        {
+          "kind": "fn_call",
+          "file": "src/cross_refs.rs",
+          "detail": "types_map keys must use canonical paths; imported_by detection must match via suffix search"
+        }
+      ],
+      "acceptance": [
+        "cargo check",
+        "cargo test --lib"
+      ],
+      "depends_on": []
+    },
+    {
+      "id": "T11",
+      "description": "Create src/validate.rs with OrphanFile and DeadReExport validation rules and wire into the lib.rs pipeline",
+      "files_in_scope": [
+        "src/validate.rs",
+        "src/lib.rs"
+      ],
+      "changes": [
+        {
+          "path": "src/validate.rs",
+          "action": "create",
+          "guidance": "Create a new module file. Define one public function: #[must_use] pub fn validate(crates: &[CrateInfo], symbols: &BTreeMap<CanonicalPath, SymbolEntry>, workspace_root: &Path) -> Vec<ErrorEntry>. Import necessary types from crate::schema. Implement two private functions. check_orphan_files(crate_info: &CrateInfo, workspace_root: &Path) -> Vec<ErrorEntry>: (1) Collect all ModuleInfo.file values for this crate (excluding \"<unresolved>\") into a HashSet<String>. (2) Walk the crate's source directory ({crate_root}/src/) recursively for all *.rs files using std::fs::read_dir. Skip src/bin/, test directories, and build.rs at crate root. (3) For each .rs file on disk whose workspace-relative path is NOT in the module-tree file set, emit an ErrorEntry with severity: Warning, kind: DiagnosticKind::OrphanFile, file set to the workspace-relative path, message including the orphan file name and a fix hint like 'add pub mod <name>; to <parent_file>'. (4) To determine the parent file for the fix hint: strip src/ prefix, resolve parent directory to lib.rs/main.rs/mod.rs. check_dead_reexports(crate_info: &CrateInfo, symbols: &BTreeMap<CanonicalPath, SymbolEntry>) -> Vec<ErrorEntry>: For each ReExport in each module: (1) Parse the import_path. Resolve prefixes: 'crate::' -> this crate's name; 'self::' -> current module path; 'super::' -> parent module path. (2) If first segment after resolution is NOT a workspace member crate name (check against all crate names from crates parameter or accept a set), skip (external re-export). (3) If import path ends with * (glob), skip. (4) Build the canonical path from the resolved import path. (5) Look up the canonical path in the symbols map. If not found, emit ErrorEntry with severity: Warning, kind: DiagnosticKind::DeadReExport, file from module.file, line from re_export.line, message with fix hint. The validate() public function calls both private functions for each crate and collects results. Include a #[cfg(test)] module with unit tests: test orphan detection with a temp directory containing an undeclared .rs file; test dead re-export detection with a hand-constructed CrateInfo containing a pub use to a nonexistent symbol."
+        },
+        {
+          "path": "src/lib.rs",
+          "action": "modify",
+          "guidance": "Add 'pub mod validate;' to the module declarations (alphabetically, after schema). In the run() function, after the indexes::derive_from_crates() call and before the WorkspaceMap::builder() call, add: 'if config.validate { let validate_findings = validate::validate(&crate_infos, &symbols, &workspace_root); crate_errors.extend(validate_findings); }'. Note that crate_errors needs to be mutable — it already is (declared as 'let mut crate_errors'). Import validate module as needed."
+        }
+      ],
+      "wiring_checklist": [
+        {
+          "kind": "pub_mod",
+          "file": "src/lib.rs",
+          "detail": "validate"
+        },
+        {
+          "kind": "fn_call",
+          "file": "src/lib.rs",
+          "detail": "validate::validate called conditionally when config.validate is true, after indexes derivation, findings merged into crate_errors"
+        }
+      ],
+      "type_reference": {
+        "validate": "#[must_use] pub fn validate(crates: &[CrateInfo], symbols: &BTreeMap<CanonicalPath, SymbolEntry>, workspace_root: &Path) -> Vec<ErrorEntry>",
+        "check_orphan_files": "fn check_orphan_files(crate_info: &CrateInfo, workspace_root: &Path) -> Vec<ErrorEntry>",
+        "check_dead_reexports": "fn check_dead_reexports(crate_info: &CrateInfo, symbols: &BTreeMap<CanonicalPath, SymbolEntry>) -> Vec<ErrorEntry>"
+      },
+      "acceptance": [
+        "cargo check",
+        "cargo test --lib"
+      ],
+      "depends_on": [
+        "T9"
+      ]
+    },
+    {
+      "id": "T12",
+      "description": "Refactor main.rs to clap subcommands (index/lookup), remove bare-path form, extract build_map() in lib.rs, and implement exit code logic",
+      "files_in_scope": [
+        "src/main.rs",
+        "src/lib.rs"
+      ],
+      "changes": [
+        {
+          "path": "src/main.rs",
+          "action": "modify",
+          "guidance": "Replace the current flat Cli struct with a subcommand-based design. Define Cli with #[command(name = \"rust-workspace-map\", version, about)] containing #[command(subcommand)] command: Command. Define Command as an enum with two variants: Index { path: PathBuf, #[arg(short = 'o', long = \"output\")] output: Option<PathBuf>, #[arg(long)] validate: bool } and Lookup { path: PathBuf, #[arg(long = \"symbol\", conflicts_with = \"file\")] symbol: Option<String>, #[arg(long = \"file\", conflicts_with = \"symbol\")] file: Option<String> }. Remove the old bare-path argument entirely. In main(), match on the parsed command. For Index: construct Config with workspace_path (canonicalized), output_path, and validate flag. If validate is true, after calling build_map(), check the returned WorkspaceMap for any ErrorEntry where severity == Warning AND kind is OrphanFile or DeadReExport — if any found, exit code 2. If build_map() fails, exit code 1. Otherwise exit 0. Wire render::render_to_writer for the Index subcommand. For Lookup: construct Config (validate defaults to false), call build_map(), then dispatch to lookup::lookup_symbol() or lookup::lookup_file(). Serialize the result to stdout as JSON. Exit 0 on found, exit 1 on not-found. Handle the case where neither --symbol nor --file is provided: print an error to stderr and exit 1. Import lookup module."
+        },
+        {
+          "path": "src/lib.rs",
+          "action": "modify",
+          "guidance": "Extract a new pub fn build_map(config: &Config) -> anyhow::Result<WorkspaceMap> from the current run() function. build_map() should contain all the pipeline logic up to and including WorkspaceMap::builder().build() — workspace discovery, per-crate processing, cross-refs computation, index derivation, optional validation, and map construction. It returns the WorkspaceMap without rendering it. The existing run() function becomes a thin wrapper: call build_map(config)?, then render to stdout or the configured output file (same rendering logic as before). The relativize_path helper stays in lib.rs. Export build_map from lib.rs (it is already pub since it is in the module). Ensure the Config import and any new type imports (CanonicalPath, WorkspaceRelativePath) are properly included."
+        }
+      ],
+      "wiring_checklist": [
+        {
+          "kind": "pub_mod",
+          "file": "src/lib.rs",
+          "detail": "build_map function must be pub and exported"
+        },
+        {
+          "kind": "fn_call",
+          "file": "src/main.rs",
+          "detail": "Index subcommand correctly constructs Config and calls build_map + render"
+        },
+        {
+          "kind": "fn_call",
+          "file": "src/main.rs",
+          "detail": "Lookup subcommand correctly constructs Config, calls build_map, dispatches to lookup functions"
+        },
+        {
+          "kind": "fn_call",
+          "file": "src/main.rs",
+          "detail": "Exit code precedence: tool error (1) before validation findings (2), else 0"
+        }
+      ],
+      "type_reference": {
+        "build_map": "pub fn build_map(config: &Config) -> anyhow::Result<WorkspaceMap>",
+        "Command::Index": "Index { path: PathBuf, #[arg(short = 'o', long = \"output\")] output: Option<PathBuf>, #[arg(long)] validate: bool }",
+        "Command::Lookup": "Lookup { path: PathBuf, #[arg(long = \"symbol\", conflicts_with = \"file\")] symbol: Option<String>, #[arg(long = \"file\", conflicts_with = \"symbol\")] file: Option<String> }"
+      },
+      "acceptance": [
+        "cargo check",
+        "cargo test --lib"
+      ],
+      "depends_on": [
+        "T9",
+        "T11",
+        "T5",
+        "T6",
+        "T7",
+        "T8"
+      ]
+    },
+    {
+      "id": "T13",
+      "description": "Create src/lookup.rs with lookup_symbol() and lookup_file() pure functions and wire into the lookup subcommand",
+      "files_in_scope": [
+        "src/lookup.rs",
+        "src/main.rs",
+        "src/lib.rs"
+      ],
+      "changes": [
+        {
+          "path": "src/lookup.rs",
+          "action": "create",
+          "guidance": "Create a new module file. Define result types and two public functions. Result types: (1) FileLookupResult with fields file_entry: FileEntry, primary_module: ModuleInfo, inline_modules: Vec<ModuleInfo> (with #[serde(skip_serializing_if = \"Vec::is_empty\")]), derive Debug, Clone, serde::Serialize, bon::Builder, #[serde(rename_all = \"camelCase\")]. (2) SymbolLookupResult enum with #[serde(tag = \"status\")]: Found(SymbolEntry) renamed to \"found\", Ambiguous { name: String, candidates: Vec<DisambiguationHint> } renamed to \"ambiguous\", NotFound renamed to \"not_found\". (3) DisambiguationHint with fields canonical_path: String, crate_name: String, kind: ItemKind, file: String, line: usize, derive Debug, Clone, serde::Serialize, bon::Builder, #[serde(rename_all = \"camelCase\")]. Functions: (1) #[must_use] pub fn lookup_symbol(map: &WorkspaceMap, name: &str) -> SymbolLookupResult — looks up name in map.name_index. If absent, return NotFound. If one canonical path, get the SymbolEntry from map.symbols and return Found(entry). If multiple paths, for each canonical path fetch the SymbolEntry and build DisambiguationHint { canonical_path: path.0, crate_name: entry.crate_name, kind: entry.kind, file: entry.file, line: entry.line }, return Ambiguous { name: name.to_string(), candidates }. (2) #[must_use] pub fn lookup_file(map: &WorkspaceMap, file: &str) -> Option<FileLookupResult> — looks up file in map.files using WorkspaceRelativePath(file.to_string()). If absent, return None. Scan map.crates.iter().flat_map(|c| &c.modules) for all ModuleInfo entries whose .file matches the requested path. Partition: primary_module is the one where .path == file_entry.module_path; inline_modules is everything else. Return FileLookupResult { file_entry, primary_module, inline_modules }. Import all needed schema types. Include a #[cfg(test)] module with unit tests using a hand-constructed WorkspaceMap."
+        },
+        {
+          "path": "src/lib.rs",
+          "action": "modify",
+          "guidance": "Add 'pub mod lookup;' to the module declarations (alphabetically, after indexes). No other changes needed in lib.rs — lookup functions are pure consumers of WorkspaceMap."
+        },
+        {
+          "path": "src/main.rs",
+          "action": "modify",
+          "guidance": "In the Lookup subcommand handler (added in T12), after calling build_map(), dispatch to lookup::lookup_symbol() or lookup::lookup_file() based on which flag is set. Serialize the result to stdout using serde_json::to_string_pretty. For lookup_symbol: exit 0 on Found or Ambiguous, exit 1 on NotFound. For lookup_file: exit 0 on Some, exit 1 on None. If neither --symbol nor --file is provided (should be prevented by clap's conflicts_with, but handle defensively), print usage to stderr and exit 1. Import SymbolLookupResult and FileLookupResult as needed."
+        }
+      ],
+      "wiring_checklist": [
+        {
+          "kind": "pub_mod",
+          "file": "src/lib.rs",
+          "detail": "lookup"
+        },
+        {
+          "kind": "pub_use",
+          "file": "src/lib.rs",
+          "detail": "lookup types (SymbolLookupResult, FileLookupResult, DisambiguationHint) should be accessible"
+        },
+        {
+          "kind": "fn_call",
+          "file": "src/main.rs",
+          "detail": "Lookup subcommand calls lookup::lookup_symbol or lookup::lookup_file and serializes result"
+        }
+      ],
+      "type_reference": {
+        "lookup_symbol": "#[must_use] pub fn lookup_symbol(map: &WorkspaceMap, name: &str) -> SymbolLookupResult",
+        "lookup_file": "#[must_use] pub fn lookup_file(map: &WorkspaceMap, file: &str) -> Option<FileLookupResult>",
+        "SymbolLookupResult": "#[derive(Debug, Clone, serde::Serialize)] #[serde(tag = \"status\")] pub enum SymbolLookupResult { #[serde(rename = \"found\")] Found(SymbolEntry), #[serde(rename = \"ambiguous\")] Ambiguous { name: String, candidates: Vec<DisambiguationHint> }, #[serde(rename = \"not_found\")] NotFound }",
+        "FileLookupResult": "pub struct FileLookupResult { pub file_entry: FileEntry, pub primary_module: ModuleInfo, pub inline_modules: Vec<ModuleInfo> }",
+        "DisambiguationHint": "pub struct DisambiguationHint { pub canonical_path: String, pub crate_name: String, pub kind: ItemKind, pub file: String, pub line: usize }"
+      },
+      "acceptance": [
+        "cargo check",
+        "cargo test --lib"
+      ],
+      "depends_on": [
+        "T12",
+        "T9"
+      ]
+    },
+    {
+      "id": "T14",
+      "description": "Create bad-orphan/ and bad-dead-reexport/ test fixtures under tests/fixtures/",
+      "files_in_scope": [
+        "tests/fixtures/bad-orphan/Cargo.toml",
+        "tests/fixtures/bad-orphan/src/lib.rs",
+        "tests/fixtures/bad-orphan/src/forgotten.rs",
+        "tests/fixtures/bad-dead-reexport/Cargo.toml",
+        "tests/fixtures/bad-dead-reexport/src/lib.rs"
+      ],
+      "changes": [
+        {
+          "path": "tests/fixtures/bad-orphan/Cargo.toml",
+          "action": "create",
+          "guidance": "Create a minimal Cargo.toml with [workspace] members = [\".\"] and [package] name = \"bad-orphan\", version = \"0.1.0\", edition = \"2021\"."
+        },
+        {
+          "path": "tests/fixtures/bad-orphan/src/lib.rs",
+          "action": "create",
+          "guidance": "Create an empty or minimal lib.rs (e.g., a comment // root module). Do NOT include 'mod forgotten;' — the file src/forgotten.rs exists but is not declared."
+        },
+        {
+          "path": "tests/fixtures/bad-orphan/src/forgotten.rs",
+          "action": "create",
+          "guidance": "Create a Rust source file with a public item: 'pub fn not_declared() {}' — this file is intentionally not declared in the module tree."
+        },
+        {
+          "path": "tests/fixtures/bad-dead-reexport/Cargo.toml",
+          "action": "create",
+          "guidance": "Create a minimal Cargo.toml with [workspace] members = [\".\"] and [package] name = \"bad-dead-reexport\", version = \"0.1.0\", edition = \"2021\"."
+        },
+        {
+          "path": "tests/fixtures/bad-dead-reexport/src/lib.rs",
+          "action": "create",
+          "guidance": "Create a lib.rs with a dead re-export: 'pub use crate::DoesNotExist;'. The symbol DoesNotExist is never defined."
+        }
+      ],
+      "wiring_checklist": [],
+      "acceptance": [
+        "ls tests/fixtures/bad-orphan/Cargo.toml tests/fixtures/bad-orphan/src/lib.rs tests/fixtures/bad-orphan/src/forgotten.rs",
+        "ls tests/fixtures/bad-dead-reexport/Cargo.toml tests/fixtures/bad-dead-reexport/src/lib.rs"
+      ],
+      "depends_on": []
+    },
+    {
+      "id": "T15",
+      "description": "Rewrite all existing integration tests for the index subcommand flag day, add new validate and lookup tests, and add DiagnosticKind serde regression test",
+      "files_in_scope": [
+        "tests/integration_test.rs"
+      ],
+      "changes": [
+        {
+          "path": "tests/integration_test.rs",
+          "action": "modify",
+          "guidance": "This is the integration test flag day. (A) Rewrite ALL 10 existing test functions: change every Command::new(&binary_path()).arg(fixture) to Command::new(&binary_path()).arg(\"index\").arg(fixture). Also update test_output_via_flag to use 'index' subcommand with -o flag (the -o flag is now on the index subcommand, so it is 'index <path> -o <file>'). Update test_sample_workspace_output to NOT assert json[\"workspace\"][\"root\"] == \".\" — instead, assert the root string is non-empty: assert!(!json[\"workspace\"][\"root\"].as_str().unwrap().is_empty()). The crossReferences.types assertion currently does cross_refs.get(\"Task\") — after re-keying (T10), the key is \"core::Task\". Update this assertion to look for a key containing \"Task\" or use the canonical path format. (B) Add new test functions: (1) test_validate_orphan_file_exits_2 — run 'index --validate tests/fixtures/bad-orphan', assert exit code 2, parse JSON, assert errors[0].kind == \"orphan_file\", severity == \"warning\", message contains fix hint. (2) test_validate_dead_reexport_exits_2 — run 'index --validate tests/fixtures/bad-dead-reexport', assert exit code 2, assert errors[0].kind == \"dead_re_export\". (3) test_index_no_validate_exits_0 — run 'index tests/fixtures/bad-orphan' (no --validate), assert exit code 0, assert errors array is empty or contains no OrphanFile/DeadReExport entries. (4) test_lookup_symbol_found — run 'lookup tests/fixtures/sample-workspace --symbol Task', assert exit code 0, parse JSON, assert status == \"found\", assert crateName is present and kind is \"struct\". (5) test_lookup_symbol_not_found — run 'lookup tests/fixtures/sample-workspace --symbol DoesNotExist', assert exit code 1, assert status == \"not_found\". (6) test_lookup_file — run 'lookup tests/fixtures/sample-workspace --file core/src/task.rs', assert exit code 0, assert file_entry and primary_module are present in JSON. (7) test_orphaned_module_serde_regression — construct a fixture with 'mod nonexistent;' in lib.rs (undeclared module), run 'index <fixture>', assert that errors array has an entry with kind == \"orphaned_module\" (the snake_case string, verifying the DiagnosticKind serde rename contract). This is verification step 4 from the plan."
+        }
+      ],
+      "wiring_checklist": [],
+      "acceptance": [
+        "cargo test --test integration_test",
+        "cargo test --test integration_test test_validate_orphan_file_exits_2 -- --nocapture",
+        "cargo test --test integration_test test_validate_dead_reexport_exits_2 -- --nocapture",
+        "cargo test --test integration_test test_lookup_symbol_found -- --nocapture",
+        "cargo test --test integration_test test_lookup_file -- --nocapture",
+        "cargo test --test integration_test test_orphaned_module_serde_regression -- --nocapture"
+      ],
+      "depends_on": [
+        "T12",
+        "T13",
+        "T14",
+        "T10"
+      ]
+    },
+    {
+      "id": "T16",
+      "description": "Update pipeline integration files: add compile-plan authoritative gate and plan-decomposer soft suggestion",
+      "files_in_scope": [
+        "../rust-development-pipeline/skills/compile-plan/SKILL.md",
+        "../rust-development-pipeline/agents/plan-decomposer.md"
+      ],
+      "changes": [
+        {
+          "path": "../rust-development-pipeline/skills/compile-plan/SKILL.md",
+          "action": "modify",
+          "guidance": "Add a pre-check step before plan execution begins. The step should: (1) Run 'rust-workspace-map index --validate <project-path>'. (2) If exit code is 2 (validation found issues), block execution and report the OrphanFile / DeadReExport findings to the user. (3) If exit code is 1 (tool error), report the error and block execution. (4) If exit code is 0, proceed with plan execution. This is a deterministic gate — no LLM compliance required. The pre-check should run before any code changes are made. Document that this prevents the two most common fix-task categories: missing pub mod declarations (~40%) and missing pub use re-exports (~20%)."
+        },
+        {
+          "path": "../rust-development-pipeline/agents/plan-decomposer.md",
+          "action": "modify",
+          "guidance": "Add a 'Module Wiring Check' section with soft guidance (not a procedural mandate). Recommend — but do not require — the following practices when decomposing plans that introduce new files or re-exports: (1) Before introducing a new file, run 'rust-workspace-map lookup --file <parent-file>' to confirm the intended sibling modules in the parent file's directory. (2) When planning a re-export, run 'rust-workspace-map lookup --symbol <name>' to check for name collisions across crates. Phrase these as helpful suggestions that reduce downstream fix tasks, not as mandatory checklist items. The deterministic gate against missing pub mod / pub use lives in compile-plan, not here. The plan-decomposer's correctness is not gated on these calls."
+        }
+      ],
+      "wiring_checklist": [],
+      "acceptance": [
+        "head -50 ../rust-development-pipeline/skills/compile-plan/SKILL.md | grep -i 'validate'",
+        "head -50 ../rust-development-pipeline/agents/plan-decomposer.md | grep -i 'module wiring'"
+      ],
+      "depends_on": [
+        "T15"
+      ]
+    },
+    {
+      "id": "T17",
+      "description": "Build release binary, run real-world dry-run against castep-cell-io to record cache baseline, and update README.md",
+      "files_in_scope": [
+        "README.md",
+        "notes/dry-run-baseline.md"
+      ],
+      "changes": [
+        {
+          "path": "README.md",
+          "action": "modify",
+          "guidance": "Three additions to README.md. (1) Update the usage section to document the subcommand surface: 'rust-workspace-map index [PATH] [-o FILE] [--validate]' and 'rust-workspace-map lookup [PATH] (--symbol NAME | --file PATH)'. Remove any reference to the bare-path form. Document exit codes: 0 = success, 1 = tool error, 2 = validation found issues. (2) Add a 'What this tool does and doesn't analyze' section explicitly stating: analyzes pub mod declarations, pub use re-exports, module tree structure, cross-crate imports; does NOT analyze inline modules (mod foo { ... }), #[path = \"...\"] attribute modules, macro-generated items, or derive-macro expansions. (3) Add an 'Inspiration' section crediting tirth8205/code-review-graph (MIT). State the differentiation: Rust-only via syn, native pub/pub use/mod semantics, one-shot CLI rather than a daemon-backed graph store. Note that CRG's edge-confidence stance (EXTRACTED/INFERRED/AMBIGUOUS) is not yet adopted because the MVP performs only AST extraction — every value would be EXTRACTED. Revisit if a non-AST data source is introduced."
+        },
+        {
+          "path": "notes/dry-run-baseline.md",
+          "action": "create",
+          "guidance": "Create this file after running the dry-run. Record: the command used (rust-workspace-map index --validate /Users/tony/programming/castep-cell-io), the wall-time (use 'time' command), the file count (303 files expected), whether exit code was 0 or 2, and any unexpected findings. This serves as the 0.1.0 -> 0.2.0 cache baseline per verification step 7. The cache layer gate requires wall-time > 2x this baseline AND compile-plan running validate >= 3x per phase."
+        }
+      ],
+      "wiring_checklist": [],
+      "acceptance": [
+        "cargo build --release",
+        "time ./target/release/rust-workspace-map index --validate /Users/tony/programming/castep-cell-io",
+        "cat notes/dry-run-baseline.md"
+      ],
+      "depends_on": [
+        "T15"
+      ]
+    }
+  ]
+}

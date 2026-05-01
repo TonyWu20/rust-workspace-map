@@ -1,0 +1,7 @@
+[workspace]
+members = ["."]
+
+[package]
+name = "bad-orphan"
+version = "0.1.0"
+edition = "2021"

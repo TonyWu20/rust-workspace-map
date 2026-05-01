@@ -5,20 +5,24 @@ use std::collections::BTreeMap;
 ///
 /// For every public item in every crate, matches it against imports from
 /// other crates. Populates each `CrateInfo.cross_crate_imports` and returns
-/// the global `CrossReferences` map (keyed by type/symbol name).
+/// the global `CrossReferences` map (keyed by canonical path).
 ///
 /// Takes `&mut [CrateInfo]` so it can write `cross_crate_imports` into each
 /// crate while building the global cross-reference map.
 pub fn compute(crates: &mut [CrateInfo]) -> CrossReferences {
-    // Build a map: crate_name -> set of public item names.
+    // Build a map: crate_name -> set of (canonical_path, kind) pairs.
+    // canonical_path = "{module.path}::{item.name}" (e.g., "core::Task").
     let crate_exports: BTreeMap<String, Vec<(String, String)>> = crates
         .iter()
         .map(|c| {
             let items: Vec<(String, String)> = c
                 .modules
                 .iter()
-                .flat_map(|m| &m.public_items)
-                .map(|item| (item.name.clone(), item.kind_to_string()))
+                .flat_map(|m| {
+                    m.public_items
+                        .iter()
+                        .map(move |item| (format!("{}::{}", m.path, item.name), item.kind_to_string()))
+                })
                 .collect();
             (c.name.clone(), items)
         })
@@ -28,8 +32,8 @@ pub fn compute(crates: &mut [CrateInfo]) -> CrossReferences {
 
     // Initialize TypeRef entries for every exported public item.
     for (crate_name, items) in &crate_exports {
-        for (item_name, kind) in items {
-            let entry = types_map.entry(item_name.clone()).or_insert_with(|| {
+        for (canonical_path, kind) in items {
+            let entry = types_map.entry(canonical_path.clone()).or_insert_with(|| {
                 TypeRef::builder()
                     .crate_name(crate_name.clone())
                     .kind(kind.clone())
@@ -38,6 +42,15 @@ pub fn compute(crates: &mut [CrateInfo]) -> CrossReferences {
             if !entry.exported_by.contains(crate_name) {
                 entry.exported_by.push(crate_name.clone());
             }
+        }
+    }
+
+    // Build a reverse lookup: short_name -> Vec<canonical_path> for import matching.
+    let mut reverse_lookup: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for canonical_path in types_map.keys() {
+        if let Some(pos) = canonical_path.rfind("::") {
+            let short_name = &canonical_path[pos + 2..];
+            reverse_lookup.entry(short_name.to_string()).or_default().push(canonical_path.clone());
         }
     }
 
@@ -75,11 +88,18 @@ pub fn compute(crates: &mut [CrateInfo]) -> CrossReferences {
                         line: import.line,
                     });
 
-                    // Update global cross-references.
-                    if let Some(type_ref) = types_map.get_mut(&symbol) {
-                        let importer_label = format!("{}:{}", my_name, module.path);
-                        if !type_ref.imported_by.contains(&importer_label) {
-                            type_ref.imported_by.push(importer_label.clone());
+                    // Update global cross-references via reverse lookup.
+                    if let Some(candidates) = reverse_lookup.get(&symbol) {
+                        for canonical_path in candidates {
+                            // Only match entries from the target crate.
+                            if let Some(type_ref) = types_map.get_mut(canonical_path)
+                                && type_ref.crate_name == first_seg
+                            {
+                                let importer_label = format!("{}:{}", my_name, module.path);
+                                if !type_ref.imported_by.contains(&importer_label) {
+                                    type_ref.imported_by.push(importer_label.clone());
+                                }
+                            }
                         }
                     }
                 }
@@ -152,9 +172,11 @@ mod tests {
             line: 1,
         });
         let refs = compute(&mut crates);
-        // Task should be in cross-references
-        assert!(refs.types.contains_key("Task"));
-        let task_ref = &refs.types["Task"];
+        // Types map keys are now canonical paths (module.path::item.name).
+        // With empty module path, key is "::Task".
+        let task_key = "::Task".to_string();
+        assert!(refs.types.contains_key(&task_key), "expected key {}", task_key);
+        let task_ref = &refs.types[&task_key];
         assert_eq!(task_ref.crate_name, "core");
         // engine should have a cross_crate_import
         assert_eq!(crates[1].cross_crate_imports.len(), 1);

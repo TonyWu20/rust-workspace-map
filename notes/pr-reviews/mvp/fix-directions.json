@@ -1,0 +1,152 @@
+{
+  "meta": {
+    "title": "MVP Review Fixes: Recursive orphan walk + test cleanup",
+    "source_branch": "mvp-dev"
+  },
+  "architecture_notes": [
+    "Add walkdir crate (small, well-tested by burntsushi; one transitive dep: same-file) — no point reinventing recursive directory walking.",
+    "Conservative recall: skip src/bin/ and test directories during recursive walk. False negatives over false positives.",
+    "All existing patterns (bon::Builder, serde camelCase/snake_case, #[must_use]) apply to any new code.",
+    "Fix directions should be applied in order — each fix modifies a separate file so order is independent."
+  ],
+  "known_pitfalls": [
+    "WalkDir returns entries in arbitrary order (unsorted within each dir). The integration test assertion on orphan_file kind doesn't care about order, but if order ever matters, sort the result vec.",
+    "WalkDir::filter_entry predicate returns true to KEEP / yield the entry, false to skip it (and prune its subtree). Read the predicate before writing: the closure must evaluate to !is_skipped, not is_skipped.",
+    "Use WalkDir::new(src_dir).into_iter().filter_entry(|e| ...) to exclude bin/tests at entry level — more efficient than skipping inside the loop.",
+    "Workspace-relative paths must use strip_prefix(workspace_root) — walkdir entries have absolute paths.",
+    "The declared_files set contains workspace-relative paths — join segments from the original src_dir base.",
+    "Fix 2 (test cleanup) is in a different region of integration_test.rs than Fix 1 — no risk of merge conflict.",
+    "Do NOT use WalkDir::follow_links(true) — symlink loops would cause infinite traversal."
+  ],
+  "task_groups": [
+    {
+      "group_id": "group-fix-orphan-walk",
+      "reason": "Single fix task for the recursive orphan file walk bug in validate.rs",
+      "tasks": ["Fix-1"],
+      "depends_on_groups": []
+    },
+    {
+      "group_id": "group-fix-test-cleanup",
+      "reason": "Single cleanup task for the unused Cargo.toml write in integration tests",
+      "tasks": ["Fix-2"],
+      "depends_on_groups": []
+    }
+  ],
+  "tasks": [
+    {
+      "id": "Fix-1",
+      "description": "Fix check_orphan_files in validate.rs to walk the src/ directory recursively instead of reading only one level",
+      "files_in_scope": ["Cargo.toml", "src/validate.rs"],
+      "changes": [
+        {
+          "path": "Cargo.toml",
+          "action": "modify",
+          "guidance": "Add walkdir = \"2\" to the [dependencies] section via 'cargo add walkdir'."
+        },
+        {
+          "path": "src/validate.rs",
+          "action": "modify",
+          "guidance": "Replace the non-recursive read_dir in check_orphan_files (lines 54-101) with walkdir::WalkDir. Changes: (1) Add 'use walkdir::WalkDir;' to imports. (2) Replace the entire while-let work-queue block (lines 54-101) with a WalkDir::new(src_dir).into_iter() loop. Use WalkDir::filter_entry to skip bin/ and tests/ directories at entry level — this prevents descending into them. IMPORTANT: filter_entry returns true to KEEP an entry, false to SKIP it. The predicate must return: true for depth==0 (root), true for non-directories (let individual files through for further filtering), and for directories: true only if not hidden, not bin/, not tests/. For each yielded entry: skip if not a file (.rs), skip lib.rs/main.rs/mod.rs. Compute workspace-relative path via strip_prefix(workspace_root). Check declared_files.contains. Build ErrorEntry using the same determine_parent_file call. Remove the old dead-code check at line 69 (`if path.file_name().is_some_and(|f| f == \"bin\")`).
+
+Here is the exact replacement code for the function body starting at line 54:
+
+```rust
+    // Walk the src/ directory recursively using walkdir.
+    let mut findings = Vec::new();
+
+    for entry in WalkDir::new(&src_dir).into_iter().filter_entry(|e| {
+        // Always yield the root; keep files (filtered later); skip hidden, bin/, tests/ dirs.
+        e.depth() == 0 || !e.file_type().is_dir() || {
+            let name = e.file_name().to_string_lossy();
+            !name.starts_with('.') && name != "bin" && name != "tests"
+        }
+    }) {
+        let Ok(entry) = entry else { continue };
+        let path = entry.path();
+
+        if !path.is_file() {
+            continue;
+        }
+        if path.extension().is_none_or(|e| e != "rs") {
+            continue;
+        }
+        let file_name = path.file_name().map_or_else(String::new, |f| f.to_string_lossy().into_owned());
+        if file_name == "lib.rs" || file_name == "main.rs" || file_name == "mod.rs" {
+            continue; // Crate roots and mod.rs — declared implicitly.
+        }
+
+        let ws_rel = path.strip_prefix(workspace_root)
+            .unwrap_or(path)
+            .to_string_lossy()
+            .to_string();
+
+        if declared_files.contains(&ws_rel) {
+            continue;
+        }
+
+        let parent_file = determine_parent_file(&ws_rel, crate_name, crate_info);
+        let stem = path.file_stem()
+            .map_or_else(String::new, |s| s.to_string_lossy().into_owned());
+        findings.push(ErrorEntry::builder()
+            .file(ws_rel.clone())
+            .message(format!(
+                "orphan file: '{file_name}' is not declared in the module tree. Add 'pub mod {stem};' to {parent_file}."
+            ))
+            .severity(ErrorSeverity::Warning)
+            .kind(DiagnosticKind::OrphanFile)
+            .build());
+    }
+```"
+        }
+      ],
+      "wiring_checklist": [
+        {
+          "kind": "fn_call",
+          "file": "src/validate.rs",
+          "detail": "check_orphan_files must walk src/ recursively using WalkDir, not a single read_dir call"
+        },
+        {
+          "kind": "fn_call",
+          "file": "src/validate.rs",
+          "detail": "bin/ and tests/ directories must be skipped via filter_entry"
+        },
+        {
+          "kind": "fn_call",
+          "file": "Cargo.toml",
+          "detail": "walkdir crate must be added as a dependency"
+        }
+      ],
+      "acceptance": [
+        "cargo add walkdir",
+        "cargo check",
+        "cargo test --lib",
+        "cargo test --test integration_test test_validate_orphan_file_exits_2 -- --nocapture"
+      ],
+      "depends_on": []
+    },
+    {
+      "id": "Fix-2",
+      "description": "Remove the spurious `std::fs::write` call in `test_orphaned_module_serde_regression` that writes an empty Cargo.toml to src/Cargo.toml",
+      "files_in_scope": ["tests/integration_test.rs"],
+      "changes": [
+        {
+          "path": "tests/integration_test.rs",
+          "action": "modify",
+          "guidance": "At line 594, remove the line: `std::fs::write(src.join(\"Cargo.toml\").parent().unwrap().join(\"Cargo.toml\"), \"\").ok();`. This is a leftover debug artifact. The test already writes a correct Cargo.toml at the root level (line 579). The src/Cargo.toml write is unnecessary and confusing."
+        }
+      ],
+      "wiring_checklist": [
+        {
+          "kind": "fn_call",
+          "file": "tests/integration_test.rs",
+          "detail": "Remove the spurious std::fs::write(src.join(\"Cargo.toml\").parent()...) line"
+        }
+      ],
+      "acceptance": [
+        "cargo test --test integration_test test_orphaned_module_serde_regression -- --nocapture",
+        "cargo test --test integration_test"
+      ],
+      "depends_on": []
+    }
+  ]
+}
