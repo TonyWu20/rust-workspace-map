@@ -47,10 +47,14 @@ fn is_external_crate_re_export(
 
     // Not a top-level module. If it's a workspace member but NOT the current
     // crate's own name, it's a cross-workspace re-export — return true so the
-    // downstream cross-crate check (line 219) handles it. If it IS the current
-    // crate's name, fall through to return false (internal).
+    // downstream cross-crate check (line 219) handles it.
     if crate_names.contains(first_seg) && first_seg != crate_info.name {
         return true;
+    }
+
+    // If the first segment is the current crate's own name, treat as internal.
+    if first_seg == crate_info.name {
+        return false;
     }
 
     // Neither a top-level module nor a workspace member: definitely external.
@@ -462,6 +466,33 @@ mod tests {
     }
 
     #[test]
+    fn test_is_external_crate_re_export_self_name() {
+        let crate_info = CrateInfo::builder()
+            .name("mycrate".to_string())
+            .root("src/lib.rs".to_string())
+            .package(
+                PackageInfo::builder()
+                    .name("mycrate".to_string())
+                    .version("0.1.0".to_string())
+                    .edition("2021".to_string())
+                    .crate_type(CrateType::Lib)
+                    .build(),
+            )
+            .modules(vec![])
+            .deps(DepInfo::default())
+            .build();
+
+        let mut crate_names = HashSet::new();
+        crate_names.insert("mycrate");
+
+        // first_seg == crate_info.name -> treated as internal
+        assert!(
+            !is_external_crate_re_export("mycrate::Something", &crate_names, &crate_info),
+            "self-crate-name path should be internal"
+        );
+    }
+
+    #[test]
     fn test_is_derive_companion() {
         use crate::schema::{ItemKind, SymbolEntry};
 
@@ -532,6 +563,12 @@ mod tests {
         assert!(
             !is_derive_companion("FooBuilder", "mycrate::sub", &symbols),
             "empty symbols map should return false"
+        );
+
+        // Edge case: empty module_path → returns false
+        assert!(
+            !is_derive_companion("FooBuilder", "", &BTreeMap::new()),
+            "empty module_path should return false"
         );
 
         // Edge case: base type with multiple derive_attrs still triggers suppression
