@@ -21,3 +21,4 @@ target
 #.idea/
 .pipeline-worktrees/
 .exploration_checkpoint.json
+.claude/
