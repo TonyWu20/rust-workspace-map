@@ -1,0 +1,241 @@
+{
+  "branch": "single-crate-support",
+  "base": "main",
+  "commits": [
+    {
+      "hash": "e1af062",
+      "message": "chore: gitignore pipeline and claude artifacts"
+    },
+    {
+      "hash": "bfabaf2",
+      "message": "feat(single-crate-support): TASK-test-existing-update,TASK-test-single-crate-module-tree: add single-crate integration tests"
+    },
+    {
+      "hash": "a5052d2",
+      "message": "feat(single-crate-support): TASK-pipeline-fallback: add single-crate fallback in build_map"
+    },
+    {
+      "hash": "f795887",
+      "message": "feat(single-crate-support): TASK-single-crate-core-02 (TDD): add find_crate_root discovery function"
+    },
+    {
+      "hash": "4177d62",
+      "message": "chore(single-crate-support): gitignore checkpoint files in worktree"
+    },
+    {
+      "hash": "01dd9c8",
+      "message": "feat(single-crate-support): TASK-silent-exit-fix: add error messages to stderr before silent exits"
+    },
+    {
+      "hash": "8610138",
+      "message": "feat(single-crate-support): TASK-single-crate-core-01: add CrateRootNotFound variant to Error enum"
+    },
+    {
+      "hash": "178ad42",
+      "message": "feat(plan): elaborate directions for single-crate-support phase"
+    }
+  ],
+  "files": [
+    {
+      "path": ".gitignore",
+      "lines_added": 2,
+      "lines_removed": 0,
+      "added_functions": [],
+      "removed_functions": [],
+      "modified_functions": [],
+      "added_imports": [],
+      "has_trailing_newline": true
+    },
+    {
+      "path": "notes/directions/single-crate-support/codebase-state.md",
+      "lines_added": 110,
+      "lines_removed": 0,
+      "added_functions": [
+        "Error",
+        "Result",
+        "find_workspace_root",
+        "enumerate_members",
+        "resolve_crate_roots",
+        "build_map",
+        "run",
+        "relativize_path"
+      ],
+      "removed_functions": [],
+      "modified_functions": [],
+      "added_imports": [],
+      "has_trailing_newline": true
+    },
+    {
+      "path": "notes/directions/single-crate-support/deferred-and-patterns.md",
+      "lines_added": 105,
+      "lines_removed": 0,
+      "added_functions": [],
+      "removed_functions": [],
+      "modified_functions": [],
+      "added_imports": [],
+      "has_trailing_newline": true
+    },
+    {
+      "path": "notes/directions/single-crate-support/directions-index.json",
+      "lines_added": 65,
+      "lines_removed": 0,
+      "added_functions": [],
+      "removed_functions": [],
+      "modified_functions": [],
+      "added_imports": [],
+      "has_trailing_newline": true
+    },
+    {
+      "path": "notes/directions/single-crate-support/directions-single-crate-support-group-core.json",
+      "lines_added": 100,
+      "lines_removed": 0,
+      "added_functions": [],
+      "removed_functions": [],
+      "modified_functions": [],
+      "added_imports": [],
+      "has_trailing_newline": true
+    },
+    {
+      "path": "notes/directions/single-crate-support/directions-single-crate-support-group-fallback.json",
+      "lines_added": 77,
+      "lines_removed": 0,
+      "added_functions": [],
+      "removed_functions": [],
+      "modified_functions": [],
+      "added_imports": [],
+      "has_trailing_newline": true
+    },
+    {
+      "path": "notes/directions/single-crate-support/directions-single-crate-support-group-silent-exit.json",
+      "lines_added": 62,
+      "lines_removed": 0,
+      "added_functions": [],
+      "removed_functions": [],
+      "modified_functions": [],
+      "added_imports": [],
+      "has_trailing_newline": true
+    },
+    {
+      "path": "notes/directions/single-crate-support/directions-single-crate-support-group-tests.json",
+      "lines_added": 88,
+      "lines_removed": 0,
+      "added_functions": [],
+      "removed_functions": [],
+      "modified_functions": [],
+      "added_imports": [],
+      "has_trailing_newline": true
+    },
+    {
+      "path": "notes/directions/single-crate-support/directions.json",
+      "lines_added": 207,
+      "lines_removed": 0,
+      "added_functions": [],
+      "removed_functions": [],
+      "modified_functions": [],
+      "added_imports": [],
+      "has_trailing_newline": true
+    },
+    {
+      "path": "notes/directions/single-crate-support/draft-directions.json",
+      "lines_added": 207,
+      "lines_removed": 0,
+      "added_functions": [],
+      "removed_functions": [],
+      "modified_functions": [],
+      "added_imports": [],
+      "has_trailing_newline": true
+    },
+    {
+      "path": "notes/directions/single-crate-support/draft-elaboration.md",
+      "lines_added": 406,
+      "lines_removed": 0,
+      "added_functions": [
+        "find_crate_root",
+        "build_map"
+      ],
+      "removed_functions": [],
+      "modified_functions": [],
+      "added_imports": [],
+      "has_trailing_newline": true
+    },
+    {
+      "path": "notes/directions/single-crate-support/task-checklist.md",
+      "lines_added": 183,
+      "lines_removed": 0,
+      "added_functions": [],
+      "removed_functions": [],
+      "modified_functions": [],
+      "added_imports": [],
+      "has_trailing_newline": true
+    },
+    {
+      "path": "notes/directions/single-crate-support/workspace-map.json",
+      "lines_added": 600,
+      "lines_removed": 0,
+      "added_functions": [],
+      "removed_functions": [],
+      "modified_functions": [],
+      "added_imports": [],
+      "has_trailing_newline": true
+    },
+    {
+      "path": "src/lib.rs",
+      "lines_added": 20,
+      "lines_removed": 3,
+      "added_functions": [],
+      "removed_functions": [],
+      "modified_functions": [],
+      "added_imports": [],
+      "has_trailing_newline": true
+    },
+    {
+      "path": "src/main.rs",
+      "lines_added": 8,
+      "lines_removed": 4,
+      "added_functions": [],
+      "removed_functions": [],
+      "modified_functions": [],
+      "added_imports": [],
+      "has_trailing_newline": true
+    },
+    {
+      "path": "src/schema.rs",
+      "lines_added": 3,
+      "lines_removed": 0,
+      "added_functions": [],
+      "removed_functions": [],
+      "modified_functions": [],
+      "added_imports": [],
+      "has_trailing_newline": true
+    },
+    {
+      "path": "src/workspace.rs",
+      "lines_added": 47,
+      "lines_removed": 0,
+      "added_functions": [
+        "find_crate_root",
+        "find_crate_root_finds_package_section",
+        "find_crate_root_returns_err_for_no_package"
+      ],
+      "removed_functions": [],
+      "modified_functions": [],
+      "added_imports": [],
+      "has_trailing_newline": true
+    },
+    {
+      "path": "tests/integration_test.rs",
+      "lines_added": 74,
+      "lines_removed": 16,
+      "added_functions": [
+        "test_single_crate_without_workspace",
+        "test_single_crate_module_tree"
+      ],
+      "removed_functions": [
+        "test_missing_workspace_section"
+      ],
+      "modified_functions": [],
+      "added_imports": [],
+      "has_trailing_newline": true
+    }
+  ]
+}
