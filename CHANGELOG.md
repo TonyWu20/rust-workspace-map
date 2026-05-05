@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.2.0 — 2026-05-06
+## 0.3.0 — 2026-05-06
 
 ### Added
 - Single-crate project support: `rust-workspace-map` now auto-detects non-workspace
