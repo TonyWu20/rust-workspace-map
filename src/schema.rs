@@ -54,6 +54,9 @@ pub enum Error {
     #[error("no workspace root found starting from {0}")]
     WorkspaceRootNotFound(PathBuf),
 
+    #[error("no Cargo.toml with [package] section found starting from {0}")]
+    CrateRootNotFound(PathBuf),
+
     #[error("failed to read file {path}: {source}")]
     FileRead {
         path: PathBuf,
