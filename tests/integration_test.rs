@@ -197,29 +197,87 @@ members = ["good_crate", "bad_crate"]
 }
 
 #[test]
-fn test_missing_workspace_section() {
+fn test_single_crate_without_workspace() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path();
+    let crate_dir = root.join("standalone");
 
-    // Cargo.toml without [workspace] section
-    write_cargo_toml(root, r#"
-[package]
-name = "standalone"
-version = "0.1.0"
-edition = "2021"
-"#);
+    setup_crate(&crate_dir, "pub struct Standalone { pub x: i32 }");
 
-    let output = Command::new(&binary_path())
-        .arg("index")
-        .arg(root.to_str().unwrap())
-        .output();
+    let output = run_index(crate_dir.to_str().unwrap());
+    assert!(output.status.success(), "standalone crate should succeed: {}", String::from_utf8_lossy(&output.stderr));
 
-    // Should exit non-zero because workspace is missing
-    let output = output.expect("failed to execute binary");
+    let json = parse_output(&output);
+    let crates = extract_array(&json, "crates");
+    assert_eq!(crates.len(), 1, "should have exactly one crate");
+
+    assert_eq!(crates[0]["name"], "standalone");
+
+    let has_standalone = crates[0]["modules"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|m| m["publicItems"].as_array().unwrap())
+        .any(|item| item["name"] == "Standalone" && item["kind"] == "struct");
+    assert!(has_standalone, "should find pub struct Standalone");
+}
+
+#[test]
+fn test_single_crate_module_tree() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("single-crate");
+    std::fs::create_dir_all(&root).unwrap();
+
+    setup_crate(&root, "pub mod helpers;");
+
+    // Create depth-1 module
+    let helpers_dir = root.join("src").join("helpers");
+    std::fs::create_dir_all(&helpers_dir).unwrap();
+    std::fs::write(helpers_dir.join("mod.rs"), "pub mod sub;").unwrap();
+
+    // Create depth-2 module with a public item
+    std::fs::write(helpers_dir.join("sub.rs"), "pub fn assist() {}").unwrap();
+
+    let output = run_index(root.to_str().unwrap());
+    assert!(output.status.success(), "single-crate module tree should succeed: {}", String::from_utf8_lossy(&output.stderr));
+
+    let json = parse_output(&output);
+    let crates = extract_array(&json, "crates");
+    assert_eq!(crates.len(), 1);
+
+    let crate_info = &crates[0];
+    assert_eq!(crate_info["name"], "single-crate");
+
+    let modules = extract_array(crate_info, "modules");
+    let module_paths: Vec<&str> = modules
+        .iter()
+        .map(|m| m["path"].as_str().unwrap())
+        .collect();
+
     assert!(
-        !output.status.success(),
-        "should exit non-zero for missing workspace section"
+        module_paths.iter().any(|p| *p == "single-crate"),
+        "should have root module"
     );
+    assert!(
+        module_paths.iter().any(|p| *p == "single-crate::helpers"),
+        "should have depth-1 module"
+    );
+    assert!(
+        module_paths.iter().any(|p| *p == "single-crate::helpers::sub"),
+        "should have depth-2 module"
+    );
+
+    // Verify the depth-2 module has the `assist` function
+    let sub_module = modules
+        .iter()
+        .find(|m| m["path"].as_str().unwrap() == "single-crate::helpers::sub")
+        .unwrap();
+    let has_assist = sub_module["publicItems"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|item| item["name"] == "assist" && item["kind"] == "fn");
+    assert!(has_assist, "helpers::sub should have pub fn assist");
 }
 
 #[test]

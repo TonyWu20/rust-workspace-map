@@ -1,0 +1,600 @@
+{
+  "files": {
+    "src/lib.rs": {
+      "modulePath": "rust_workspace_map",
+      "parentModuleFile": null,
+      "isCrateRoot": true
+    },
+    "src/schema.rs": {
+      "modulePath": "rust_workspace_map::schema",
+      "parentModuleFile": "src/lib.rs",
+      "isCrateRoot": false
+    },
+    "src/workspace.rs": {
+      "modulePath": "rust_workspace_map::workspace",
+      "parentModuleFile": "src/lib.rs",
+      "isCrateRoot": false
+    },
+    "src/cargo_info.rs": {
+      "modulePath": "rust_workspace_map::cargo_info",
+      "parentModuleFile": "src/lib.rs",
+      "isCrateRoot": false
+    },
+    "src/file_parser.rs": {
+      "modulePath": "rust_workspace_map::file_parser",
+      "parentModuleFile": "src/lib.rs",
+      "isCrateRoot": false
+    },
+    "src/module_tree.rs": {
+      "modulePath": "rust_workspace_map::module_tree",
+      "parentModuleFile": "src/lib.rs",
+      "isCrateRoot": false
+    },
+    "src/cross_refs.rs": {
+      "modulePath": "rust_workspace_map::cross_refs",
+      "parentModuleFile": "src/lib.rs",
+      "isCrateRoot": false
+    },
+    "src/render.rs": {
+      "modulePath": "rust_workspace_map::render",
+      "parentModuleFile": "src/lib.rs",
+      "isCrateRoot": false
+    },
+    "src/validate.rs": {
+      "modulePath": "rust_workspace_map::validate",
+      "parentModuleFile": "src/lib.rs",
+      "isCrateRoot": false
+    },
+    "src/indexes.rs": {
+      "modulePath": "rust_workspace_map::indexes",
+      "parentModuleFile": "src/lib.rs",
+      "isCrateRoot": false
+    },
+    "src/lookup.rs": {
+      "modulePath": "rust_workspace_map::lookup",
+      "parentModuleFile": "src/lib.rs",
+      "isCrateRoot": false
+    },
+    "src/main.rs": {
+      "modulePath": "rust_workspace_map::main",
+      "parentModuleFile": null,
+      "isCrateRoot": false
+    }
+  },
+  "symbols": {
+    "rust_workspace_map::build_map": {
+      "crateName": "rust-workspace-map",
+      "module": "rust_workspace_map",
+      "file": "src/lib.rs",
+      "line": 36,
+      "kind": "fn"
+    },
+    "rust_workspace_map::run": {
+      "crateName": "rust-workspace-map",
+      "module": "rust_workspace_map",
+      "file": "src/lib.rs",
+      "line": 186,
+      "kind": "fn"
+    },
+    "rust_workspace_map::relativize_path": {
+      "crateName": "rust-workspace-map",
+      "module": "rust_workspace_map",
+      "file": "src/lib.rs",
+      "line": 205,
+      "kind": "fn"
+    },
+    "rust_workspace_map::schema::CanonicalPath": {
+      "crateName": "rust-workspace-map",
+      "module": "rust_workspace_map::schema",
+      "file": "src/schema.rs",
+      "line": 6,
+      "kind": "struct",
+      "deriveAttrs": ["serde::Deserialize", "serde::Serialize"]
+    },
+    "rust_workspace_map::schema::WorkspaceRelativePath": {
+      "crateName": "rust-workspace-map",
+      "module": "rust_workspace_map::schema",
+      "file": "src/schema.rs",
+      "line": 28,
+      "kind": "struct",
+      "deriveAttrs": ["serde::Deserialize", "serde::Serialize"]
+    },
+    "rust_workspace_map::schema::Error": {
+      "crateName": "rust-workspace-map",
+      "module": "rust_workspace_map::schema",
+      "file": "src/schema.rs",
+      "line": 52,
+      "kind": "enum",
+      "deriveAttrs": ["thiserror::Error"]
+    },
+    "rust_workspace_map::schema::Config": {
+      "crateName": "rust-workspace-map",
+      "module": "rust_workspace_map::schema",
+      "file": "src/schema.rs",
+      "line": 89,
+      "kind": "struct",
+      "deriveAttrs": ["bon::Builder"]
+    },
+    "rust_workspace_map::schema::CrateType": {
+      "crateName": "rust-workspace-map",
+      "module": "rust_workspace_map::schema",
+      "file": "src/schema.rs",
+      "line": 104,
+      "kind": "enum",
+      "deriveAttrs": ["serde::Serialize"]
+    },
+    "rust_workspace_map::schema::WorkspaceMap": {
+      "crateName": "rust-workspace-map",
+      "module": "rust_workspace_map::schema",
+      "file": "src/schema.rs",
+      "line": 115,
+      "kind": "struct",
+      "deriveAttrs": ["bon::Builder", "serde::Serialize"]
+    },
+    "rust_workspace_map::schema::WorkspaceInfo": {
+      "crateName": "rust-workspace-map",
+      "module": "rust_workspace_map::schema",
+      "file": "src/schema.rs",
+      "line": 141,
+      "kind": "struct",
+      "deriveAttrs": ["bon::Builder", "serde::Serialize"]
+    },
+    "rust_workspace_map::schema::CrateInfo": {
+      "crateName": "rust-workspace-map",
+      "module": "rust_workspace_map::schema",
+      "file": "src/schema.rs",
+      "line": 150,
+      "kind": "struct",
+      "deriveAttrs": ["bon::Builder", "serde::Serialize"]
+    },
+    "rust_workspace_map::schema::PackageInfo": {
+      "crateName": "rust-workspace-map",
+      "module": "rust_workspace_map::schema",
+      "file": "src/schema.rs",
+      "line": 164,
+      "kind": "struct",
+      "deriveAttrs": ["bon::Builder", "serde::Serialize"]
+    },
+    "rust_workspace_map::schema::DepInfo": {
+      "crateName": "rust-workspace-map",
+      "module": "rust_workspace_map::schema",
+      "file": "src/schema.rs",
+      "line": 175,
+      "kind": "struct",
+      "deriveAttrs": ["bon::Builder", "serde::Serialize"]
+    },
+    "rust_workspace_map::schema::ModuleInfo": {
+      "crateName": "rust-workspace-map",
+      "module": "rust_workspace_map::schema",
+      "file": "src/schema.rs",
+      "line": 193,
+      "kind": "struct",
+      "deriveAttrs": ["bon::Builder", "serde::Serialize"]
+    },
+    "rust_workspace_map::schema::PublicItem": {
+      "crateName": "rust-workspace-map",
+      "module": "rust_workspace_map::schema",
+      "file": "src/schema.rs",
+      "line": 219,
+      "kind": "struct",
+      "deriveAttrs": ["bon::Builder", "serde::Serialize"]
+    },
+    "rust_workspace_map::schema::ItemKind": {
+      "crateName": "rust-workspace-map",
+      "module": "rust_workspace_map::schema",
+      "file": "src/schema.rs",
+      "line": 243,
+      "kind": "enum",
+      "deriveAttrs": ["serde::Serialize"]
+    },
+    "rust_workspace_map::schema::ItemAttrs": {
+      "crateName": "rust-workspace-map",
+      "module": "rust_workspace_map::schema",
+      "file": "src/schema.rs",
+      "line": 254,
+      "kind": "struct",
+      "deriveAttrs": ["bon::Builder", "serde::Serialize"]
+    },
+    "rust_workspace_map::schema::ImplInfo": {
+      "crateName": "rust-workspace-map",
+      "module": "rust_workspace_map::schema",
+      "file": "src/schema.rs",
+      "line": 268,
+      "kind": "struct",
+      "deriveAttrs": ["bon::Builder", "serde::Serialize"]
+    },
+    "rust_workspace_map::schema::ImplItem": {
+      "crateName": "rust-workspace-map",
+      "module": "rust_workspace_map::schema",
+      "file": "src/schema.rs",
+      "line": 277,
+      "kind": "struct",
+      "deriveAttrs": ["bon::Builder", "serde::Serialize"]
+    },
+    "rust_workspace_map::schema::ImplItemKind": {
+      "crateName": "rust-workspace-map",
+      "module": "rust_workspace_map::schema",
+      "file": "src/schema.rs",
+      "line": 285,
+      "kind": "enum",
+      "deriveAttrs": ["serde::Serialize"]
+    },
+    "rust_workspace_map::schema::Import": {
+      "crateName": "rust-workspace-map",
+      "module": "rust_workspace_map::schema",
+      "file": "src/schema.rs",
+      "line": 295,
+      "kind": "struct",
+      "deriveAttrs": ["bon::Builder", "serde::Serialize"]
+    },
+    "rust_workspace_map::schema::ReExport": {
+      "crateName": "rust-workspace-map",
+      "module": "rust_workspace_map::schema",
+      "file": "src/schema.rs",
+      "line": 302,
+      "kind": "struct",
+      "deriveAttrs": ["bon::Builder", "serde::Serialize"]
+    },
+    "rust_workspace_map::schema::CrossCrateImport": {
+      "crateName": "rust-workspace-map",
+      "module": "rust_workspace_map::schema",
+      "file": "src/schema.rs",
+      "line": 312,
+      "kind": "struct",
+      "deriveAttrs": ["bon::Builder", "serde::Serialize"]
+    },
+    "rust_workspace_map::schema::CrossReferences": {
+      "crateName": "rust-workspace-map",
+      "module": "rust_workspace_map::schema",
+      "file": "src/schema.rs",
+      "line": 321,
+      "kind": "struct",
+      "deriveAttrs": ["bon::Builder", "serde::Serialize"]
+    },
+    "rust_workspace_map::schema::TypeRef": {
+      "crateName": "rust-workspace-map",
+      "module": "rust_workspace_map::schema",
+      "file": "src/schema.rs",
+      "line": 328,
+      "kind": "struct",
+      "deriveAttrs": ["bon::Builder", "serde::Serialize"]
+    },
+    "rust_workspace_map::schema::DiagnosticKind": {
+      "crateName": "rust-workspace-map",
+      "module": "rust_workspace_map::schema",
+      "file": "src/schema.rs",
+      "line": 345,
+      "kind": "enum",
+      "deriveAttrs": ["serde::Serialize"]
+    },
+    "rust_workspace_map::schema::ErrorSeverity": {
+      "crateName": "rust-workspace-map",
+      "module": "rust_workspace_map::schema",
+      "file": "src/schema.rs",
+      "line": 362,
+      "kind": "enum",
+      "deriveAttrs": ["serde::Serialize"]
+    },
+    "rust_workspace_map::schema::ErrorContext": {
+      "crateName": "rust-workspace-map",
+      "module": "rust_workspace_map::schema",
+      "file": "src/schema.rs",
+      "line": 373,
+      "kind": "struct",
+      "deriveAttrs": ["bon::Builder", "serde::Serialize"]
+    },
+    "rust_workspace_map::schema::FileInfo": {
+      "crateName": "rust-workspace-map",
+      "module": "rust_workspace_map::schema",
+      "file": "src/schema.rs",
+      "line": 394,
+      "kind": "struct",
+      "deriveAttrs": []
+    },
+    "rust_workspace_map::schema::SubmoduleDecl": {
+      "crateName": "rust-workspace-map",
+      "module": "rust_workspace_map::schema",
+      "file": "src/schema.rs",
+      "line": 403,
+      "kind": "struct",
+      "deriveAttrs": ["bon::Builder"]
+    },
+    "rust_workspace_map::schema::SymbolEntry": {
+      "crateName": "rust-workspace-map",
+      "module": "rust_workspace_map::schema",
+      "file": "src/schema.rs",
+      "line": 412,
+      "kind": "struct",
+      "deriveAttrs": ["bon::Builder", "serde::Serialize"]
+    },
+    "rust_workspace_map::schema::FileEntry": {
+      "crateName": "rust-workspace-map",
+      "module": "rust_workspace_map::schema",
+      "file": "src/schema.rs",
+      "line": 426,
+      "kind": "struct",
+      "deriveAttrs": ["bon::Builder", "serde::Serialize"]
+    },
+    "rust_workspace_map::schema::ErrorEntry": {
+      "crateName": "rust-workspace-map",
+      "module": "rust_workspace_map::schema",
+      "file": "src/schema.rs",
+      "line": 437,
+      "kind": "struct",
+      "deriveAttrs": ["bon::Builder", "serde::Serialize"]
+    },
+    "rust_workspace_map::workspace::find_workspace_root": {
+      "crateName": "rust-workspace-map",
+      "module": "rust_workspace_map::workspace",
+      "file": "src/workspace.rs",
+      "line": 11,
+      "kind": "fn"
+    },
+    "rust_workspace_map::workspace::enumerate_members": {
+      "crateName": "rust-workspace-map",
+      "module": "rust_workspace_map::workspace",
+      "file": "src/workspace.rs",
+      "line": 35,
+      "kind": "fn"
+    },
+    "rust_workspace_map::workspace::resolve_crate_roots": {
+      "crateName": "rust-workspace-map",
+      "module": "rust_workspace_map::workspace",
+      "file": "src/workspace.rs",
+      "line": 210,
+      "kind": "fn"
+    },
+    "rust_workspace_map::cargo_info::parse_cargo_toml": {
+      "crateName": "rust-workspace-map",
+      "module": "rust_workspace_map::cargo_info",
+      "file": "src/cargo_info.rs",
+      "line": 11,
+      "kind": "fn"
+    },
+    "rust_workspace_map::file_parser::parse_file": {
+      "crateName": "rust-workspace-map",
+      "module": "rust_workspace_map::file_parser",
+      "file": "src/file_parser.rs",
+      "line": 35,
+      "kind": "fn"
+    },
+    "rust_workspace_map::file_parser::ParsedFile": {
+      "crateName": "rust-workspace-map",
+      "module": "rust_workspace_map::file_parser",
+      "file": "src/file_parser.rs",
+      "line": 15,
+      "kind": "struct"
+    },
+    "rust_workspace_map::file_parser::SynParseError": {
+      "crateName": "rust-workspace-map",
+      "module": "rust_workspace_map::file_parser",
+      "file": "src/file_parser.rs",
+      "line": 22,
+      "kind": "struct"
+    },
+    "rust_workspace_map::file_parser::extract_public_items": {
+      "crateName": "rust-workspace-map",
+      "module": "rust_workspace_map::file_parser",
+      "file": "src/file_parser.rs",
+      "line": 104,
+      "kind": "fn"
+    },
+    "rust_workspace_map::file_parser::extract_imports": {
+      "crateName": "rust-workspace-map",
+      "module": "rust_workspace_map::file_parser",
+      "file": "src/file_parser.rs",
+      "line": 119,
+      "kind": "fn"
+    },
+    "rust_workspace_map::file_parser::extract_re_exports": {
+      "crateName": "rust-workspace-map",
+      "module": "rust_workspace_map::file_parser",
+      "file": "src/file_parser.rs",
+      "line": 139,
+      "kind": "fn"
+    },
+    "rust_workspace_map::file_parser::extract_submodules": {
+      "crateName": "rust-workspace-map",
+      "module": "rust_workspace_map::file_parser",
+      "file": "src/file_parser.rs",
+      "line": 168,
+      "kind": "fn"
+    },
+    "rust_workspace_map::file_parser::extract_impls": {
+      "crateName": "rust-workspace-map",
+      "module": "rust_workspace_map::file_parser",
+      "file": "src/file_parser.rs",
+      "line": 202,
+      "kind": "fn"
+    },
+    "rust_workspace_map::module_tree::resolve_module_path": {
+      "crateName": "rust-workspace-map",
+      "module": "rust_workspace_map::module_tree",
+      "file": "src/module_tree.rs",
+      "line": 11,
+      "kind": "fn"
+    },
+    "rust_workspace_map::module_tree::build_module_tree": {
+      "crateName": "rust-workspace-map",
+      "module": "rust_workspace_map::module_tree",
+      "file": "src/module_tree.rs",
+      "line": 27,
+      "kind": "fn"
+    },
+    "rust_workspace_map::cross_refs::compute": {
+      "crateName": "rust-workspace-map",
+      "module": "rust_workspace_map::cross_refs",
+      "file": "src/cross_refs.rs",
+      "line": 12,
+      "kind": "fn"
+    },
+    "rust_workspace_map::render::render_json": {
+      "crateName": "rust-workspace-map",
+      "module": "rust_workspace_map::render",
+      "file": "src/render.rs",
+      "line": 9,
+      "kind": "fn"
+    },
+    "rust_workspace_map::render::render_to_writer": {
+      "crateName": "rust-workspace-map",
+      "module": "rust_workspace_map::render",
+      "file": "src/render.rs",
+      "line": 18,
+      "kind": "fn"
+    },
+    "rust_workspace_map::validate::validate": {
+      "crateName": "rust-workspace-map",
+      "module": "rust_workspace_map::validate",
+      "file": "src/validate.rs",
+      "line": 72,
+      "kind": "fn"
+    },
+    "rust_workspace_map::validate::is_external_crate_re_export": {
+      "crateName": "rust-workspace-map",
+      "module": "rust_workspace_map::validate",
+      "file": "src/validate.rs",
+      "line": 15,
+      "kind": "fn"
+    },
+    "rust_workspace_map::validate::check_orphan_files": {
+      "crateName": "rust-workspace-map",
+      "module": "rust_workspace_map::validate",
+      "file": "src/validate.rs",
+      "line": 90,
+      "kind": "fn"
+    },
+    "rust_workspace_map::validate::check_dead_reexports": {
+      "crateName": "rust-workspace-map",
+      "module": "rust_workspace_map::validate",
+      "file": "src/validate.rs",
+      "line": 189,
+      "kind": "fn"
+    },
+    "rust_workspace_map::validate::is_derive_companion": {
+      "crateName": "rust-workspace-map",
+      "module": "rust_workspace_map::validate",
+      "file": "src/validate.rs",
+      "line": 254,
+      "kind": "fn"
+    },
+    "rust_workspace_map::validate::resolve_import_path": {
+      "crateName": "rust-workspace-map",
+      "module": "rust_workspace_map::validate",
+      "file": "src/validate.rs",
+      "line": 278,
+      "kind": "fn"
+    },
+    "rust_workspace_map::indexes::derive_from_crates": {
+      "crateName": "rust-workspace-map",
+      "module": "rust_workspace_map::indexes",
+      "file": "src/indexes.rs",
+      "line": 28,
+      "kind": "fn"
+    },
+    "rust_workspace_map::lookup::lookup_symbol": {
+      "crateName": "rust-workspace-map",
+      "module": "rust_workspace_map::lookup",
+      "file": "src/lookup.rs",
+      "line": 47,
+      "kind": "fn"
+    },
+    "rust_workspace_map::lookup::lookup_file": {
+      "crateName": "rust-workspace-map",
+      "module": "rust_workspace_map::lookup",
+      "file": "src/lookup.rs",
+      "line": 88,
+      "kind": "fn"
+    },
+    "rust_workspace_map::lookup::SymbolLookupResult": {
+      "crateName": "rust-workspace-map",
+      "module": "rust_workspace_map::lookup",
+      "file": "src/lookup.rs",
+      "line": 7,
+      "kind": "enum",
+      "deriveAttrs": ["serde::Serialize"]
+    },
+    "rust_workspace_map::lookup::DisambiguationHint": {
+      "crateName": "rust-workspace-map",
+      "module": "rust_workspace_map::lookup",
+      "file": "src/lookup.rs",
+      "line": 22,
+      "kind": "struct",
+      "deriveAttrs": ["bon::Builder", "serde::Serialize"]
+    },
+    "rust_workspace_map::lookup::FileLookupResult": {
+      "crateName": "rust-workspace-map",
+      "module": "rust_workspace_map::lookup",
+      "file": "src/lookup.rs",
+      "line": 33,
+      "kind": "struct",
+      "deriveAttrs": ["bon::Builder", "serde::Serialize"]
+    }
+  },
+  "nameIndex": {
+    "CanonicalPath": ["rust_workspace_map::schema::CanonicalPath"],
+    "WorkspaceRelativePath": ["rust_workspace_map::schema::WorkspaceRelativePath"],
+    "Error": ["rust_workspace_map::schema::Error"],
+    "Config": ["rust_workspace_map::schema::Config"],
+    "CrateType": ["rust_workspace_map::schema::CrateType"],
+    "WorkspaceMap": ["rust_workspace_map::schema::WorkspaceMap"],
+    "WorkspaceInfo": ["rust_workspace_map::schema::WorkspaceInfo"],
+    "CrateInfo": ["rust_workspace_map::schema::CrateInfo"],
+    "PackageInfo": ["rust_workspace_map::schema::PackageInfo"],
+    "DepInfo": ["rust_workspace_map::schema::DepInfo"],
+    "ModuleInfo": ["rust_workspace_map::schema::ModuleInfo"],
+    "PublicItem": ["rust_workspace_map::schema::PublicItem"],
+    "ItemKind": ["rust_workspace_map::schema::ItemKind"],
+    "ItemAttrs": ["rust_workspace_map::schema::ItemAttrs"],
+    "ImplInfo": ["rust_workspace_map::schema::ImplInfo"],
+    "ImplItem": ["rust_workspace_map::schema::ImplItem"],
+    "ImplItemKind": ["rust_workspace_map::schema::ImplItemKind"],
+    "Import": ["rust_workspace_map::schema::Import"],
+    "ReExport": ["rust_workspace_map::schema::ReExport"],
+    "CrossCrateImport": ["rust_workspace_map::schema::CrossCrateImport"],
+    "CrossReferences": ["rust_workspace_map::schema::CrossReferences"],
+    "TypeRef": ["rust_workspace_map::schema::TypeRef"],
+    "DiagnosticKind": ["rust_workspace_map::schema::DiagnosticKind"],
+    "ErrorSeverity": ["rust_workspace_map::schema::ErrorSeverity"],
+    "ErrorContext": ["rust_workspace_map::schema::ErrorContext"],
+    "FileInfo": ["rust_workspace_map::schema::FileInfo"],
+    "SubmoduleDecl": ["rust_workspace_map::schema::SubmoduleDecl"],
+    "SymbolEntry": ["rust_workspace_map::schema::SymbolEntry"],
+    "FileEntry": ["rust_workspace_map::schema::FileEntry"],
+    "ErrorEntry": ["rust_workspace_map::schema::ErrorEntry"],
+    "find_workspace_root": ["rust_workspace_map::workspace::find_workspace_root"],
+    "enumerate_members": ["rust_workspace_map::workspace::enumerate_members"],
+    "resolve_crate_roots": ["rust_workspace_map::workspace::resolve_crate_roots"],
+    "parse_cargo_toml": ["rust_workspace_map::cargo_info::parse_cargo_toml"],
+    "parse_file": ["rust_workspace_map::file_parser::parse_file"],
+    "ParsedFile": ["rust_workspace_map::file_parser::ParsedFile"],
+    "SynParseError": ["rust_workspace_map::file_parser::SynParseError"],
+    "extract_public_items": ["rust_workspace_map::file_parser::extract_public_items"],
+    "extract_imports": ["rust_workspace_map::file_parser::extract_imports"],
+    "extract_re_exports": ["rust_workspace_map::file_parser::extract_re_exports"],
+    "extract_submodules": ["rust_workspace_map::file_parser::extract_submodules"],
+    "extract_impls": ["rust_workspace_map::file_parser::extract_impls"],
+    "resolve_module_path": ["rust_workspace_map::module_tree::resolve_module_path"],
+    "build_module_tree": ["rust_workspace_map::module_tree::build_module_tree"],
+    "compute": ["rust_workspace_map::cross_refs::compute"],
+    "render_json": ["rust_workspace_map::render::render_json"],
+    "render_to_writer": ["rust_workspace_map::render::render_to_writer"],
+    "validate": ["rust_workspace_map::validate::validate"],
+    "is_external_crate_re_export": ["rust_workspace_map::validate::is_external_crate_re_export"],
+    "check_orphan_files": ["rust_workspace_map::validate::check_orphan_files"],
+    "check_dead_reexports": ["rust_workspace_map::validate::check_dead_reexports"],
+    "is_derive_companion": ["rust_workspace_map::validate::is_derive_companion"],
+    "resolve_import_path": ["rust_workspace_map::validate::resolve_import_path"],
+    "derive_from_crates": ["rust_workspace_map::indexes::derive_from_crates"],
+    "lookup_symbol": ["rust_workspace_map::lookup::lookup_symbol"],
+    "lookup_file": ["rust_workspace_map::lookup::lookup_file"],
+    "SymbolLookupResult": ["rust_workspace_map::lookup::SymbolLookupResult"],
+    "DisambiguationHint": ["rust_workspace_map::lookup::DisambiguationHint"],
+    "FileLookupResult": ["rust_workspace_map::lookup::FileLookupResult"],
+    "build_map": ["rust_workspace_map::build_map"],
+    "run": ["rust_workspace_map::run"],
+    "relativize_path": ["rust_workspace_map::relativize_path"]
+  },
+  "crossReferences": {
+    "types": {}
+  }
+}

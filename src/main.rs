@@ -85,12 +85,14 @@ fn main() {
                             }
                         };
                         let writer = std::io::BufWriter::new(file);
-                        if rust_workspace_map::render::render_to_writer(&map, writer).is_err() {
+                        if let Err(e) = rust_workspace_map::render::render_to_writer(&map, writer) {
+                            eprintln!("error writing JSON to file: {e}");
                             std::process::exit(1);
                         }
                     } else {
                         let stdout = std::io::stdout();
-                        if rust_workspace_map::render::render_to_writer(&map, stdout.lock()).is_err() {
+                        if let Err(e) = rust_workspace_map::render::render_to_writer(&map, stdout.lock()) {
+                            eprintln!("error writing JSON to stdout: {e}");
                             std::process::exit(1);
                         }
                     }
@@ -99,7 +101,8 @@ fn main() {
                         std::process::exit(2);
                     }
                 }
-                Err(_) => {
+                Err(e) => {
+                    eprintln!("error: {e:#}");
                     std::process::exit(1);
                 }
             }
@@ -162,7 +165,8 @@ fn main() {
                         }
                     }
                 }
-                Err(_) => {
+                Err(e) => {
+                    eprintln!("error: {e:#}");
                     std::process::exit(1);
                 }
             }

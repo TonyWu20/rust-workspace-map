@@ -1,0 +1,88 @@
+{
+  "meta": {
+    "title": "Single-Crate Support + Fix Silent Error Handling",
+    "source_branch": "single-crate-support"
+  },
+  "architecture_notes": [
+    "Auto-detect: try workspace discovery first; on WorkspaceRootNotFound or MissingWorkspaceSection, fall back to single-crate discovery. No new CLI flags.",
+    "Two separate functions: find_workspace_root (looks for [workspace]) and find_crate_root (looks for [package]). A combined function would stop at a workspace member's Cargo.toml.",
+    "D1 enhancement: catch MissingWorkspaceSection from enumerate_members as a fallback trigger, not just WorkspaceRootNotFound. This handles the false positive where Cargo.toml contains '[workspace]' as a comment or string literal.",
+    "validate::validate path safety confirmed \u2014 check_orphan_files joins workspace_root with crate_info.root which is always workspace-relative; safe in both multi-crate and single-crate modes.",
+    "workspace_name in single-crate mode will be the crate directory name (e.g., 'rust-workspace-map') derived from workspace_root.file_name().",
+    "find_crate_root must structurally mirror find_workspace_root: same ancestors() walk, same FileRead error mapping, same .contains() check style, same doc-comment structure with # Errors section.",
+    "Orchestration lives in lib.rs:build_map \u2014 workspace.rs remains pure with single-responsibility functions.",
+    "All changes stay within the single rust-workspace-map crate. No new crates introduced.",
+    "Library code in this phase follows ch12-04 TDD: tests claim interfaces first via tdd_interface, then implementations evolve to meet them. See the tdd-pattern.md reference for the full workflow."
+  ],
+  "known_pitfalls": [
+    "lib.rs line 18-21 does NOT import schema::Error \u2014 must add Error to the use schema::{...} import for the match pattern in TASK-pipeline-fallback.",
+    "relativize_path silently returns original path on strip_prefix failure \u2014 no error propagation, works correctly because crate_info.root paths are always workspace-relative.",
+    "workspace_name is derived from workspace_root.file_name().unwrap_or_default(). In single-crate mode this is the crate directory name, which is reasonable.",
+    "D1 enhancement nests a second match inside the Ok(root) arm: match enumerate_members, catch MissingWorkspaceSection as fallback trigger alongside the outer WorkspaceRootNotFound.",
+    "MissingWorkspaceSection false positive: Cargo.toml with '[workspace]' in a comment or string literal triggers find_workspace_root to return Ok, but enumerate_members fails. The D1 enhancement catches this.",
+    "TASK-test-single-crate-module-tree MUST exercise depth >= 2 submodule resolution (e.g., lib -> helpers/mod.rs -> helpers/sub.rs).",
+    "Do NOT touch these modules: cargo_info.rs, file_parser.rs, module_tree.rs, cross_refs.rs, render.rs, validate.rs, indexes.rs, lookup.rs.",
+    "No new CLI flags \u2014 the feature is auto-detect only. Do not add --single-crate or similar flags.",
+    "Both find_workspace_root and find_crate_root use .contains() (string match) rather than toml parsing. This is consistent with existing code. The D1 MissingWorkspaceSection fallback mitigates the false-positive risk.",
+    "unit tests in workspace.rs use the existing write_cargo_toml and setup_crate helpers (one-param version). Integration tests use the separate setup_crate(dir, lib_content) helper (two-param version)."
+  ],
+  "task_groups": [
+    {
+      "group_id": "group-tests",
+      "reason": "Both are integration test changes that verify the feature. They depend on all production code changes being in place. Can run in parallel with each other.",
+      "tasks": [
+        "TASK-test-existing-update",
+        "TASK-test-single-crate-module-tree"
+      ],
+      "depends_on_groups": [
+        "group-fallback"
+      ]
+    }
+  ],
+  "tasks": [
+    {
+      "id": "TASK-test-existing-update",
+      "kind": "direct",
+      "description": "Rename and invert test_missing_workspace_section to test_single_crate_without_workspace \u2014 the existing test expects non-zero exit for a standalone crate, which is now a supported scenario.",
+      "files_in_scope": [
+        "tests/integration_test.rs"
+      ],
+      "changes": [
+        {
+          "path": "tests/integration_test.rs",
+          "action": "modify",
+          "guidance": "Rename `test_missing_workspace_section` (line 200) to `test_single_crate_without_workspace` and invert the test logic to match the new single-crate support behavior.\n\nReplace the test body (lines 199-223) with:\n\n1. Create a temp directory using `tempfile::tempdir().unwrap()`. Create a subdirectory `let crate_dir = root.join(\"standalone\");`.\n2. Use `setup_crate(&crate_dir, \"pub struct Standalone { pub x: i32 }\")` \u2014 the existing two-param helper writes both a [package]-only Cargo.toml (with name=\"standalone\") and src/lib.rs for that subdirectory.\n3. Run the index command via `run_index(crate_dir.to_str().unwrap())`.\n4. Assert exit 0: `assert!(output.status.success(), ...)`.\n5. Parse the JSON: `let json = parse_output(&output)`.\n6. Extract crates: `let crates = extract_array(&json, \"crates\")`.\n7. Assert exactly one crate (len == 1).\n8. Assert the crate name is \"standalone\": `crates[0][\"name\"] == \"standalone\"`.\n9. Assert the crate has at least one module and that \"Standalone\" appears in public items \u2014 iterate over modules' publicItems and find a struct named \"Standalone\".\n\nThe test name change from `test_missing_workspace_section` to `test_single_crate_without_workspace` signals the behavior change: what was an error condition is now a supported scenario."
+        }
+      ],
+      "wiring_checklist": [],
+      "acceptance": [
+        "cargo test --test integration_test test_single_crate_without_workspace"
+      ],
+      "depends_on": [
+        "TASK-pipeline-fallback"
+      ]
+    },
+    {
+      "id": "TASK-test-single-crate-module-tree",
+      "kind": "direct",
+      "description": "Add test_single_crate_module_tree integration test with depth >= 2 submodule resolution in single-crate mode.",
+      "files_in_scope": [
+        "tests/integration_test.rs"
+      ],
+      "changes": [
+        {
+          "path": "tests/integration_test.rs",
+          "action": "modify",
+          "guidance": "Add a new integration test `test_single_crate_module_tree` that verifies module tree construction works in single-crate mode at depth >= 2.\n\nImplementation:\n\n1. Create a temp directory and a subdirectory with a known name: `let tmp = tempfile::tempdir().unwrap(); let root = tmp.path().join(\"single-crate\"); std::fs::create_dir_all(&root).unwrap();`\n2. Use `setup_crate(&root, \"pub mod helpers;\")` to create a standalone (non-workspace) crate with lib.rs declaring a submodule.\n3. Create `src/helpers/mod.rs` with `pub mod sub;` (a module at depth 1 declaring depth 2).\n4. Create `src/helpers/sub.rs` with `pub fn assist() {}` \u2014 this is the depth-2 module with a public item.\n5. Run the index command: `let output = run_index(root.to_str().unwrap());`\n6. Assert exit 0: `assert!(output.status.success(), ...)`\n7. Parse JSON: `let json = parse_output(&output);`\n8. Extract crates array and assert length 1.\n9. Assert the crate name is `\"single-crate\"` (derived from the dir basename by setup_crate).\n10. Collect module paths from the crate and assert all three expected paths exist:\n    - `\"single-crate\"` (root module)\n    - `\"single-crate::helpers\"` (depth 1)\n    - `\"single-crate::helpers::sub\"` (depth 2)\n11. Find the `helpers::sub` module and verify it has the `assist` function in its publicItems array (kind = \"fn\", name = \"assist\").\n\nUse the existing helpers: `setup_crate(dir, lib_content)`, `run_index(path)`, `parse_output(output)`, `extract_array(val, key)`. Follow the pattern established by `test_deeply_nested_modules` (lines 284-329).\n\nThe maximum depth for this test (2) exercises recursive module resolution in single-crate mode \u2014 the key risk flagged by the architectural review. The existing `test_deeply_nested_modules` goes to depth 4 but uses workspace mode with `members = [\".\"]` \u2014 this new test confirms the same depth works in pure single-crate mode without any `[workspace]` section."
+        }
+      ],
+      "wiring_checklist": [],
+      "acceptance": [
+        "cargo test --test integration_test test_single_crate_module_tree"
+      ],
+      "depends_on": [
+        "TASK-pipeline-fallback"
+      ]
+    }
+  ]
+}

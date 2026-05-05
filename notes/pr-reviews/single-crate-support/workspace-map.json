@@ -1,0 +1,3002 @@
+{
+  "workspace": {
+    "root": "/Users/tony/programming/rust-workspace-map",
+    "workspaceName": "rust-workspace-map"
+  },
+  "crates": [
+    {
+      "name": "rust-workspace-map",
+      "root": "src/lib.rs",
+      "package": {
+        "name": "rust-workspace-map",
+        "version": "0.2.0",
+        "edition": "2024",
+        "crateType": "lib_and_bin"
+      },
+      "modules": [
+        {
+          "path": "rust-workspace-map",
+          "file": "src/lib.rs",
+          "visibility": "pub",
+          "publicItems": [
+            {
+              "kind": "fn",
+              "name": "build_map",
+              "file": "",
+              "line": 36,
+              "attrs": {
+                "doc": [
+                  " Build a `WorkspaceMap` from the given config, without rendering.",
+                  "",
+                  " This function contains all pipeline logic up to and including",
+                  " `WorkspaceMap` construction — workspace discovery, per-crate processing,",
+                  " cross-refs computation, index derivation, optional validation, and map building.",
+                  "",
+                  " # Errors",
+                  "",
+                  " Returns an error if the workspace root cannot be found, the workspace",
+                  " Cargo.toml is missing a `[workspace]` section, member crates cannot be",
+                  " parsed, or the JSON output cannot be written."
+                ]
+              },
+              "generics": "",
+              "visibility": "pub"
+            },
+            {
+              "kind": "fn",
+              "name": "run",
+              "file": "",
+              "line": 203,
+              "attrs": {
+                "doc": [
+                  " Run the full workspace mapping pipeline.",
+                  "",
+                  " 1. Discover workspace root and member crates.",
+                  " 2. Process each crate in parallel (Cargo.toml parsing + module tree).",
+                  " 3. Compute cross-crate references.",
+                  " 4. Render JSON to stdout or the configured output file.",
+                  "",
+                  " # Errors",
+                  "",
+                  " Returns an error if the workspace root cannot be found, the workspace",
+                  " Cargo.toml is missing a `[workspace]` section, member crates cannot be",
+                  " parsed, or the JSON output cannot be written."
+                ]
+              },
+              "generics": "",
+              "visibility": "pub"
+            }
+          ],
+          "imports": [
+            {
+              "path": "anyhow::Context",
+              "line": 0
+            },
+            {
+              "path": "rayon::prelude::*",
+              "line": 0
+            },
+            {
+              "path": "schema::Config",
+              "line": 0
+            },
+            {
+              "path": "schema::CrateInfo",
+              "line": 0
+            },
+            {
+              "path": "schema::CrateType",
+              "line": 0
+            },
+            {
+              "path": "schema::DiagnosticKind",
+              "line": 0
+            },
+            {
+              "path": "schema::Error",
+              "line": 0
+            },
+            {
+              "path": "schema::ErrorEntry",
+              "line": 0
+            },
+            {
+              "path": "schema::ErrorSeverity",
+              "line": 0
+            },
+            {
+              "path": "schema::ModuleInfo",
+              "line": 0
+            },
+            {
+              "path": "schema::WorkspaceInfo",
+              "line": 0
+            },
+            {
+              "path": "schema::WorkspaceMap",
+              "line": 0
+            },
+            {
+              "path": "std::path::Path",
+              "line": 0
+            }
+          ],
+          "reExports": [
+            {
+              "importPath": "schema::Config",
+              "exportPath": "Config",
+              "line": 0
+            }
+          ],
+          "submodules": [
+            "cargo_info",
+            "cross_refs",
+            "file_parser",
+            "indexes",
+            "lookup",
+            "module_tree",
+            "render",
+            "schema",
+            "validate",
+            "workspace"
+          ]
+        },
+        {
+          "path": "rust-workspace-map::cargo_info",
+          "file": "src/cargo_info.rs",
+          "visibility": "pub",
+          "publicItems": [
+            {
+              "kind": "fn",
+              "name": "parse_cargo_toml",
+              "file": "",
+              "line": 11,
+              "attrs": {
+                "doc": [
+                  " Parse a crate's `Cargo.toml` and return package metadata and dependency lists.",
+                  " The returned `PackageInfo.crate_type` is set to `Lib` by default; the caller",
+                  " overrides it based on `workspace::resolve_crate_roots`.",
+                  "",
+                  " # Errors",
+                  "",
+                  " Returns an error if the file cannot be read or parsed."
+                ]
+              },
+              "generics": "",
+              "visibility": "pub"
+            }
+          ],
+          "imports": [
+            {
+              "path": "crate::schema::CrateType",
+              "line": 0
+            },
+            {
+              "path": "crate::schema::DepInfo",
+              "line": 0
+            },
+            {
+              "path": "crate::schema::Error",
+              "line": 0
+            },
+            {
+              "path": "crate::schema::PackageInfo",
+              "line": 0
+            },
+            {
+              "path": "crate::schema::Result",
+              "line": 0
+            },
+            {
+              "path": "std::path::Path",
+              "line": 0
+            }
+          ],
+          "submodules": [
+            "tests"
+          ]
+        },
+        {
+          "path": "rust-workspace-map::cross_refs",
+          "file": "src/cross_refs.rs",
+          "visibility": "pub",
+          "publicItems": [
+            {
+              "kind": "fn",
+              "name": "compute",
+              "file": "",
+              "line": 12,
+              "attrs": {
+                "doc": [
+                  " Compute cross-crate type references.",
+                  "",
+                  " For every public item in every crate, matches it against imports from",
+                  " other crates. Populates each `CrateInfo.cross_crate_imports` and returns",
+                  " the global `CrossReferences` map (keyed by canonical path).",
+                  "",
+                  " Takes `&mut [CrateInfo]` so it can write `cross_crate_imports` into each",
+                  " crate while building the global cross-reference map."
+                ]
+              },
+              "generics": "",
+              "visibility": "pub"
+            }
+          ],
+          "imports": [
+            {
+              "path": "crate::schema::CrateInfo",
+              "line": 0
+            },
+            {
+              "path": "crate::schema::CrossCrateImport",
+              "line": 0
+            },
+            {
+              "path": "crate::schema::CrossReferences",
+              "line": 0
+            },
+            {
+              "path": "crate::schema::TypeRef",
+              "line": 0
+            },
+            {
+              "path": "std::collections::BTreeMap",
+              "line": 0
+            }
+          ],
+          "submodules": [
+            "tests"
+          ]
+        },
+        {
+          "path": "rust-workspace-map::file_parser",
+          "file": "src/file_parser.rs",
+          "visibility": "pub",
+          "publicItems": [
+            {
+              "kind": "struct",
+              "name": "ParsedFile",
+              "file": "",
+              "line": 15,
+              "attrs": {
+                "doc": [
+                  " Result of parsing a Rust source file.",
+                  "",
+                  " Unlike `Result<T, Error>`, this type always succeeds — parse",
+                  " failures are reported as data, not as errors, so the caller",
+                  " can continue processing other files. The caller constructs",
+                  " `ErrorEntry` values from `SynParseError` when needed."
+                ]
+              },
+              "generics": "",
+              "visibility": "pub",
+              "fields": [
+                "pub ast: syn::File",
+                "pub file_info: FileInfo",
+                "pub parse_error: Option<SynParseError>"
+              ]
+            },
+            {
+              "kind": "struct",
+              "name": "SynParseError",
+              "file": "",
+              "line": 22,
+              "attrs": {
+                "doc": [
+                  " Structured information about a parse failure."
+                ]
+              },
+              "generics": "",
+              "visibility": "pub",
+              "fields": [
+                "pub message: String",
+                "pub line: usize"
+              ]
+            },
+            {
+              "kind": "fn",
+              "name": "build_parse_error_entry",
+              "file": "",
+              "line": 89,
+              "attrs": {},
+              "generics": "",
+              "visibility": "pub(crate)"
+            },
+            {
+              "kind": "fn",
+              "name": "extract_impls",
+              "file": "",
+              "line": 202,
+              "attrs": {
+                "doc": [
+                  " Extract `impl` blocks. Each `ImplInfo` records the target type name and",
+                  " the impl items (fn, type, const)."
+                ]
+              },
+              "generics": "",
+              "visibility": "pub"
+            },
+            {
+              "kind": "fn",
+              "name": "extract_imports",
+              "file": "",
+              "line": 119,
+              "attrs": {
+                "doc": [
+                  " Extract all `use` statements. Braced imports are expanded to individual",
+                  " entries. Results sorted by path for determinism."
+                ]
+              },
+              "generics": "",
+              "visibility": "pub"
+            },
+            {
+              "kind": "fn",
+              "name": "extract_public_items",
+              "file": "",
+              "line": 104,
+              "attrs": {
+                "doc": [
+                  " Extract all items with any form of `pub` visibility (excluding `Inherited`).",
+                  " Results are sorted by name then line for deterministic output."
+                ]
+              },
+              "generics": "",
+              "visibility": "pub"
+            },
+            {
+              "kind": "fn",
+              "name": "extract_re_exports",
+              "file": "",
+              "line": 139,
+              "attrs": {
+                "doc": [
+                  " Extract `pub use` re-exports. Results sorted by `export_path`."
+                ]
+              },
+              "generics": "",
+              "visibility": "pub"
+            },
+            {
+              "kind": "fn",
+              "name": "extract_submodules",
+              "file": "",
+              "line": 168,
+              "attrs": {
+                "doc": [
+                  " Extract `mod` declarations. Detects `#[cfg(test)]` via literal token",
+                  " matching. Results sorted by name."
+                ]
+              },
+              "generics": "",
+              "visibility": "pub"
+            },
+            {
+              "kind": "fn",
+              "name": "parse_file",
+              "file": "",
+              "line": 35,
+              "attrs": {
+                "doc": [
+                  " Read and parse a Rust source file.",
+                  "",
+                  " On parse failure, returns the original file content and a",
+                  " `SynParseError` alongside an empty `FileInfo`. Callers use the",
+                  " error to construct an `ErrorEntry`."
+                ]
+              },
+              "generics": "",
+              "visibility": "pub"
+            }
+          ],
+          "imports": [
+            {
+              "path": "crate::schema::DiagnosticKind",
+              "line": 0
+            },
+            {
+              "path": "crate::schema::ErrorEntry",
+              "line": 0
+            },
+            {
+              "path": "crate::schema::ErrorSeverity",
+              "line": 0
+            },
+            {
+              "path": "crate::schema::FileInfo",
+              "line": 0
+            },
+            {
+              "path": "crate::schema::ImplInfo",
+              "line": 0
+            },
+            {
+              "path": "crate::schema::ImplItem",
+              "line": 0
+            },
+            {
+              "path": "crate::schema::ImplItemKind",
+              "line": 0
+            },
+            {
+              "path": "crate::schema::Import",
+              "line": 0
+            },
+            {
+              "path": "crate::schema::ItemAttrs",
+              "line": 0
+            },
+            {
+              "path": "crate::schema::ItemKind",
+              "line": 0
+            },
+            {
+              "path": "crate::schema::PublicItem",
+              "line": 0
+            },
+            {
+              "path": "crate::schema::ReExport",
+              "line": 0
+            },
+            {
+              "path": "crate::schema::SubmoduleDecl",
+              "line": 0
+            },
+            {
+              "path": "std::path::Path",
+              "line": 0
+            }
+          ],
+          "submodules": [
+            "tests"
+          ]
+        },
+        {
+          "path": "rust-workspace-map::indexes",
+          "file": "src/indexes.rs",
+          "visibility": "pub",
+          "publicItems": [
+            {
+              "kind": "fn",
+              "name": "derive_from_crates",
+              "file": "",
+              "line": 28,
+              "attrs": {
+                "doc": [
+                  " Build flat indexes from a slice of `CrateInfo`.",
+                  "",
+                  " Returns three maps:",
+                  " 1. `symbols` — canonical-path-keyed map of all public items",
+                  " 2. `name_index` — short-name to canonical-path list (for disambiguation)",
+                  " 3. `files` — workspace-relative-path-keyed map of all source files with module metadata",
+                  "",
+                  " The symbols and `name_index` are constructed via an iterator pipeline;",
+                  " the files map uses a for-loop due to the inline-detection accumulator.",
+                  "",
+                  " # Inline module detection",
+                  "",
+                  " This function relies on depth-first traversal order from `build_module_tree`.",
+                  " The heuristic: the first module encountered per file path is the primary",
+                  " (declared in a separate file); subsequent modules sharing the same file",
+                  " are inline modules and are excluded from the files map."
+                ]
+              },
+              "generics": "",
+              "visibility": "pub"
+            }
+          ],
+          "imports": [
+            {
+              "path": "crate::schema::CanonicalPath",
+              "line": 0
+            },
+            {
+              "path": "crate::schema::CrateInfo",
+              "line": 0
+            },
+            {
+              "path": "crate::schema::FileEntry",
+              "line": 0
+            },
+            {
+              "path": "crate::schema::SymbolEntry",
+              "line": 0
+            },
+            {
+              "path": "crate::schema::WorkspaceRelativePath",
+              "line": 0
+            },
+            {
+              "path": "std::collections::BTreeMap",
+              "line": 0
+            }
+          ],
+          "submodules": [
+            "tests"
+          ]
+        },
+        {
+          "path": "rust-workspace-map::lookup",
+          "file": "src/lookup.rs",
+          "visibility": "pub",
+          "publicItems": [
+            {
+              "kind": "struct",
+              "name": "DisambiguationHint",
+              "file": "",
+              "line": 24,
+              "attrs": {
+                "derive": [
+                  "Clone",
+                  "Debug",
+                  "bon :: Builder",
+                  "serde :: Serialize"
+                ],
+                "doc": [
+                  " Hint for disambiguating a symbol name collision."
+                ]
+              },
+              "generics": "",
+              "visibility": "pub",
+              "fields": [
+                "pub canonical_path: String",
+                "pub crate_name: String",
+                "pub kind: ItemKind",
+                "pub file: String",
+                "pub line: usize"
+              ]
+            },
+            {
+              "kind": "struct",
+              "name": "FileLookupResult",
+              "file": "",
+              "line": 35,
+              "attrs": {
+                "derive": [
+                  "Clone",
+                  "Debug",
+                  "bon :: Builder",
+                  "serde :: Serialize"
+                ],
+                "doc": [
+                  " Result of a file lookup."
+                ]
+              },
+              "generics": "",
+              "visibility": "pub",
+              "fields": [
+                "pub file_entry: FileEntry",
+                "pub primary_module: ModuleInfo",
+                "pub inline_modules: Vec<ModuleInfo>"
+              ]
+            },
+            {
+              "kind": "enum",
+              "name": "SymbolLookupResult",
+              "file": "",
+              "line": 9,
+              "attrs": {
+                "derive": [
+                  "Clone",
+                  "Debug",
+                  "serde :: Serialize"
+                ],
+                "doc": [
+                  " Result of a symbol lookup."
+                ]
+              },
+              "generics": "",
+              "visibility": "pub",
+              "variants": [
+                "Found(SymbolEntry)",
+                "Ambiguous { name: String, candidates: Vec<DisambiguationHint> }",
+                "NotFound"
+              ]
+            },
+            {
+              "kind": "fn",
+              "name": "lookup_file",
+              "file": "",
+              "line": 88,
+              "attrs": {
+                "doc": [
+                  " Look up a file by workspace-relative path.",
+                  "",
+                  " Returns `Some` with the file entry and associated modules if found,",
+                  " or `None` if the file is not in the files index."
+                ]
+              },
+              "generics": "",
+              "visibility": "pub"
+            },
+            {
+              "kind": "fn",
+              "name": "lookup_symbol",
+              "file": "",
+              "line": 47,
+              "attrs": {
+                "doc": [
+                  " Look up a symbol by name in the workspace map's `name_index`.",
+                  "",
+                  " Returns `Found` if exactly one canonical path is found,",
+                  " `Ambiguous` if multiple candidates exist, or `NotFound` otherwise."
+                ]
+              },
+              "generics": "",
+              "visibility": "pub"
+            }
+          ],
+          "imports": [
+            {
+              "path": "crate::schema::FileEntry",
+              "line": 0
+            },
+            {
+              "path": "crate::schema::ItemKind",
+              "line": 0
+            },
+            {
+              "path": "crate::schema::ModuleInfo",
+              "line": 0
+            },
+            {
+              "path": "crate::schema::SymbolEntry",
+              "line": 0
+            },
+            {
+              "path": "crate::schema::WorkspaceMap",
+              "line": 0
+            },
+            {
+              "path": "crate::schema::WorkspaceRelativePath",
+              "line": 0
+            }
+          ],
+          "submodules": [
+            "tests"
+          ]
+        },
+        {
+          "path": "rust-workspace-map::module_tree",
+          "file": "src/module_tree.rs",
+          "visibility": "pub",
+          "publicItems": [
+            {
+              "kind": "fn",
+              "name": "build_module_tree",
+              "file": "",
+              "line": 27,
+              "attrs": {
+                "doc": [
+                  " Build the full module tree for a crate starting from its entry point",
+                  " (e.g., `src/lib.rs`). Returns a tuple of module info and any errors",
+                  " encountered during submodule parsing (including orphaned module warnings)."
+                ]
+              },
+              "generics": "",
+              "visibility": "pub"
+            },
+            {
+              "kind": "fn",
+              "name": "resolve_module_path",
+              "file": "",
+              "line": 11,
+              "attrs": {
+                "doc": [
+                  " Resolve a `mod name;` declaration to a file path.",
+                  " Tries `{parent_dir}/{mod_name}.rs` first, then `{parent_dir}/{mod_name}/mod.rs`.",
+                  "",
+                  " Returns `None` if neither path exists."
+                ]
+              },
+              "generics": "",
+              "visibility": "pub"
+            }
+          ],
+          "imports": [
+            {
+              "path": "crate::file_parser",
+              "line": 0
+            },
+            {
+              "path": "crate::schema::DiagnosticKind",
+              "line": 0
+            },
+            {
+              "path": "crate::schema::ErrorContext",
+              "line": 0
+            },
+            {
+              "path": "crate::schema::ErrorEntry",
+              "line": 0
+            },
+            {
+              "path": "crate::schema::ErrorSeverity",
+              "line": 0
+            },
+            {
+              "path": "crate::schema::FileInfo",
+              "line": 0
+            },
+            {
+              "path": "crate::schema::ModuleInfo",
+              "line": 0
+            },
+            {
+              "path": "crate::schema::SubmoduleDecl",
+              "line": 0
+            },
+            {
+              "path": "std::collections::HashSet",
+              "line": 0
+            },
+            {
+              "path": "std::path::Path",
+              "line": 0
+            },
+            {
+              "path": "std::path::PathBuf",
+              "line": 0
+            }
+          ],
+          "submodules": [
+            "tests"
+          ]
+        },
+        {
+          "path": "rust-workspace-map::render",
+          "file": "src/render.rs",
+          "visibility": "pub",
+          "publicItems": [
+            {
+              "kind": "fn",
+              "name": "render_json",
+              "file": "",
+              "line": 9,
+              "attrs": {
+                "doc": [
+                  " Serialize the workspace map to a JSON string with 2-space indentation.",
+                  "",
+                  " # Errors",
+                  "",
+                  " Returns an error if serialization fails."
+                ]
+              },
+              "generics": "",
+              "visibility": "pub"
+            },
+            {
+              "kind": "fn",
+              "name": "render_to_writer",
+              "file": "",
+              "line": 18,
+              "attrs": {
+                "doc": [
+                  " Serialize the workspace map to the given writer.",
+                  "",
+                  " # Errors",
+                  "",
+                  " Returns an error if serialization fails."
+                ]
+              },
+              "generics": "",
+              "visibility": "pub"
+            }
+          ],
+          "imports": [
+            {
+              "path": "crate::schema::WorkspaceMap",
+              "line": 0
+            },
+            {
+              "path": "std::io::Write",
+              "line": 0
+            }
+          ],
+          "submodules": [
+            "tests"
+          ]
+        },
+        {
+          "path": "rust-workspace-map::schema",
+          "file": "src/schema.rs",
+          "visibility": "pub",
+          "publicItems": [
+            {
+              "kind": "struct",
+              "name": "CanonicalPath",
+              "file": "",
+              "line": 8,
+              "attrs": {
+                "derive": [
+                  "Clone",
+                  "Debug",
+                  "Eq",
+                  "Hash",
+                  "Ord",
+                  "PartialEq",
+                  "PartialOrd",
+                  "serde :: Deserialize",
+                  "serde :: Serialize"
+                ]
+              },
+              "generics": "",
+              "visibility": "pub",
+              "fields": [
+                "pub String"
+              ]
+            },
+            {
+              "kind": "struct",
+              "name": "Config",
+              "file": "",
+              "line": 93,
+              "attrs": {
+                "derive": [
+                  "Clone",
+                  "Debug",
+                  "bon :: Builder"
+                ]
+              },
+              "generics": "",
+              "visibility": "pub",
+              "fields": [
+                "pub workspace_path: PathBuf",
+                "pub output_path: Option<PathBuf>",
+                "pub validate: bool"
+              ]
+            },
+            {
+              "kind": "struct",
+              "name": "CrateInfo",
+              "file": "",
+              "line": 155,
+              "attrs": {
+                "derive": [
+                  "Clone",
+                  "Debug",
+                  "bon :: Builder",
+                  "serde :: Serialize"
+                ]
+              },
+              "generics": "",
+              "visibility": "pub",
+              "fields": [
+                "pub name: String",
+                "pub root: String",
+                "pub package: PackageInfo",
+                "pub modules: Vec<ModuleInfo>",
+                "pub deps: DepInfo",
+                "pub cross_crate_imports: Vec<CrossCrateImport>"
+              ]
+            },
+            {
+              "kind": "enum",
+              "name": "CrateType",
+              "file": "",
+              "line": 109,
+              "attrs": {
+                "derive": [
+                  "Clone",
+                  "Copy",
+                  "Debug",
+                  "Eq",
+                  "PartialEq",
+                  "serde :: Serialize"
+                ]
+              },
+              "generics": "",
+              "visibility": "pub",
+              "variants": [
+                "Lib",
+                "Bin",
+                "LibAndBin"
+              ]
+            },
+            {
+              "kind": "struct",
+              "name": "CrossCrateImport",
+              "file": "",
+              "line": 317,
+              "attrs": {
+                "derive": [
+                  "Clone",
+                  "Debug",
+                  "bon :: Builder",
+                  "serde :: Serialize"
+                ]
+              },
+              "generics": "",
+              "visibility": "pub",
+              "fields": [
+                "pub import_path: String",
+                "pub target_crate: String",
+                "pub symbol: String",
+                "pub line: usize"
+              ]
+            },
+            {
+              "kind": "struct",
+              "name": "CrossReferences",
+              "file": "",
+              "line": 326,
+              "attrs": {
+                "derive": [
+                  "Clone",
+                  "Debug",
+                  "Default",
+                  "bon :: Builder",
+                  "serde :: Serialize"
+                ]
+              },
+              "generics": "",
+              "visibility": "pub",
+              "fields": [
+                "pub types: BTreeMap<String, TypeRef>"
+              ]
+            },
+            {
+              "kind": "struct",
+              "name": "DepInfo",
+              "file": "",
+              "line": 180,
+              "attrs": {
+                "derive": [
+                  "Clone",
+                  "Debug",
+                  "Default",
+                  "bon :: Builder",
+                  "serde :: Serialize"
+                ]
+              },
+              "generics": "",
+              "visibility": "pub",
+              "fields": [
+                "pub normal: Vec<String>",
+                "pub dev: Vec<String>",
+                "pub workspace_members: Vec<String>"
+              ]
+            },
+            {
+              "kind": "enum",
+              "name": "DiagnosticKind",
+              "file": "",
+              "line": 350,
+              "attrs": {
+                "derive": [
+                  "Clone",
+                  "Copy",
+                  "Debug",
+                  "Eq",
+                  "PartialEq",
+                  "serde :: Serialize"
+                ]
+              },
+              "generics": "",
+              "visibility": "pub",
+              "variants": [
+                "OrphanedModule",
+                "TomlParseError",
+                "MissingCrateRoots",
+                "ModuleTreeError",
+                "SynParseError",
+                "MissingWorkspaceSection",
+                "GlobPatternError",
+                "MemberNotFound",
+                "OrphanFile",
+                "DeadReExport"
+              ]
+            },
+            {
+              "kind": "enum",
+              "name": "Error",
+              "file": "",
+              "line": 53,
+              "attrs": {
+                "derive": [
+                  "Debug",
+                  "thiserror :: Error"
+                ]
+              },
+              "generics": "",
+              "visibility": "pub",
+              "variants": [
+                "WorkspaceRootNotFound(PathBuf)",
+                "CrateRootNotFound(PathBuf)",
+                "FileRead { path: PathBuf, source: std::io::Error }",
+                "TomlParse { path: PathBuf, source: toml::de::Error }",
+                "SynParse { path: PathBuf, source: syn::Error }",
+                "MemberNotFound(PathBuf)",
+                "GlobPattern(String)",
+                "MissingWorkspaceSection"
+              ]
+            },
+            {
+              "kind": "struct",
+              "name": "ErrorContext",
+              "file": "",
+              "line": 378,
+              "attrs": {
+                "derive": [
+                  "Clone",
+                  "Debug",
+                  "Default",
+                  "bon :: Builder",
+                  "serde :: Serialize"
+                ],
+                "doc": [
+                  " Optional context attached to an error, providing additional location",
+                  " and source information for diagnostics."
+                ]
+              },
+              "generics": "",
+              "visibility": "pub",
+              "fields": [
+                "pub crate_name: Option<String>",
+                "pub module_path: Option<String>",
+                "pub line: Option<usize>",
+                "pub snippet: Option<String>"
+              ]
+            },
+            {
+              "kind": "struct",
+              "name": "ErrorEntry",
+              "file": "",
+              "line": 442,
+              "attrs": {
+                "derive": [
+                  "Clone",
+                  "Debug",
+                  "bon :: Builder",
+                  "serde :: Serialize"
+                ]
+              },
+              "generics": "",
+              "visibility": "pub",
+              "fields": [
+                "pub file: String",
+                "pub line: usize",
+                "pub message: String",
+                "pub severity: ErrorSeverity",
+                "pub kind: DiagnosticKind",
+                "pub context: Option<ErrorContext>",
+                "pub cause: Option<String>"
+              ]
+            },
+            {
+              "kind": "enum",
+              "name": "ErrorSeverity",
+              "file": "",
+              "line": 367,
+              "attrs": {
+                "derive": [
+                  "Clone",
+                  "Copy",
+                  "Debug",
+                  "Eq",
+                  "PartialEq",
+                  "serde :: Serialize"
+                ]
+              },
+              "generics": "",
+              "visibility": "pub",
+              "variants": [
+                "Error",
+                "Warning"
+              ]
+            },
+            {
+              "kind": "struct",
+              "name": "FileEntry",
+              "file": "",
+              "line": 431,
+              "attrs": {
+                "derive": [
+                  "Clone",
+                  "Debug",
+                  "bon :: Builder",
+                  "serde :: Serialize"
+                ]
+              },
+              "generics": "",
+              "visibility": "pub",
+              "fields": [
+                "pub module_path: String",
+                "pub parent_module_file: Option<String>",
+                "pub is_crate_root: bool"
+              ]
+            },
+            {
+              "kind": "struct",
+              "name": "FileInfo",
+              "file": "",
+              "line": 398,
+              "attrs": {
+                "derive": [
+                  "Clone",
+                  "Debug",
+                  "Default"
+                ],
+                "doc": [
+                  " Internal intermediate type consumed by `module_tree`."
+                ]
+              },
+              "generics": "",
+              "visibility": "pub",
+              "fields": [
+                "pub public_items: Vec<PublicItem>",
+                "pub imports: Vec<Import>",
+                "pub re_exports: Vec<ReExport>",
+                "pub submodules: Vec<SubmoduleDecl>",
+                "pub impls: Vec<ImplInfo>"
+              ]
+            },
+            {
+              "kind": "struct",
+              "name": "ImplInfo",
+              "file": "",
+              "line": 273,
+              "attrs": {
+                "derive": [
+                  "Clone",
+                  "Debug",
+                  "bon :: Builder",
+                  "serde :: Serialize"
+                ]
+              },
+              "generics": "",
+              "visibility": "pub",
+              "fields": [
+                "pub type_: String",
+                "pub items: Vec<ImplItem>"
+              ]
+            },
+            {
+              "kind": "struct",
+              "name": "ImplItem",
+              "file": "",
+              "line": 282,
+              "attrs": {
+                "derive": [
+                  "Clone",
+                  "Debug",
+                  "bon :: Builder",
+                  "serde :: Serialize"
+                ]
+              },
+              "generics": "",
+              "visibility": "pub",
+              "fields": [
+                "pub kind: ImplItemKind",
+                "pub name: String",
+                "pub params: String"
+              ]
+            },
+            {
+              "kind": "enum",
+              "name": "ImplItemKind",
+              "file": "",
+              "line": 290,
+              "attrs": {
+                "derive": [
+                  "Clone",
+                  "Debug",
+                  "serde :: Serialize"
+                ]
+              },
+              "generics": "",
+              "visibility": "pub",
+              "variants": [
+                "Fn",
+                "Type",
+                "Const"
+              ]
+            },
+            {
+              "kind": "struct",
+              "name": "Import",
+              "file": "",
+              "line": 300,
+              "attrs": {
+                "derive": [
+                  "Clone",
+                  "Debug",
+                  "bon :: Builder",
+                  "serde :: Serialize"
+                ]
+              },
+              "generics": "",
+              "visibility": "pub",
+              "fields": [
+                "pub path: String",
+                "pub line: usize"
+              ]
+            },
+            {
+              "kind": "struct",
+              "name": "ItemAttrs",
+              "file": "",
+              "line": 259,
+              "attrs": {
+                "derive": [
+                  "Clone",
+                  "Debug",
+                  "Default",
+                  "bon :: Builder",
+                  "serde :: Serialize"
+                ]
+              },
+              "generics": "",
+              "visibility": "pub",
+              "fields": [
+                "pub derive: Vec<String>",
+                "pub doc: Vec<String>"
+              ]
+            },
+            {
+              "kind": "enum",
+              "name": "ItemKind",
+              "file": "",
+              "line": 248,
+              "attrs": {
+                "derive": [
+                  "Clone",
+                  "Debug",
+                  "PartialEq",
+                  "serde :: Serialize"
+                ]
+              },
+              "generics": "",
+              "visibility": "pub",
+              "variants": [
+                "Struct",
+                "Enum",
+                "Trait",
+                "Fn",
+                "Type",
+                "Macro"
+              ]
+            },
+            {
+              "kind": "struct",
+              "name": "ModuleInfo",
+              "file": "",
+              "line": 198,
+              "attrs": {
+                "derive": [
+                  "Clone",
+                  "Debug",
+                  "bon :: Builder",
+                  "serde :: Serialize"
+                ]
+              },
+              "generics": "",
+              "visibility": "pub",
+              "fields": [
+                "pub path: String",
+                "pub file: String",
+                "pub visibility: String",
+                "pub public_items: Vec<PublicItem>",
+                "pub imports: Vec<Import>",
+                "pub re_exports: Vec<ReExport>",
+                "pub submodules: Vec<String>"
+              ]
+            },
+            {
+              "kind": "struct",
+              "name": "PackageInfo",
+              "file": "",
+              "line": 169,
+              "attrs": {
+                "derive": [
+                  "Clone",
+                  "Debug",
+                  "bon :: Builder",
+                  "serde :: Serialize"
+                ]
+              },
+              "generics": "",
+              "visibility": "pub",
+              "fields": [
+                "pub name: String",
+                "pub version: String",
+                "pub edition: String",
+                "pub crate_type: CrateType"
+              ]
+            },
+            {
+              "kind": "struct",
+              "name": "PublicItem",
+              "file": "",
+              "line": 224,
+              "attrs": {
+                "derive": [
+                  "Clone",
+                  "Debug",
+                  "bon :: Builder",
+                  "serde :: Serialize"
+                ]
+              },
+              "generics": "",
+              "visibility": "pub",
+              "fields": [
+                "pub kind: ItemKind",
+                "pub name: String",
+                "pub file: String",
+                "pub line: usize",
+                "pub attrs: ItemAttrs",
+                "pub generics: String",
+                "pub visibility: String",
+                "pub fields: Vec<String>",
+                "pub variants: Vec<String>",
+                "pub impls: Vec<ImplInfo>"
+              ]
+            },
+            {
+              "kind": "struct",
+              "name": "ReExport",
+              "file": "",
+              "line": 307,
+              "attrs": {
+                "derive": [
+                  "Clone",
+                  "Debug",
+                  "bon :: Builder",
+                  "serde :: Serialize"
+                ]
+              },
+              "generics": "",
+              "visibility": "pub",
+              "fields": [
+                "pub import_path: String",
+                "pub export_path: String",
+                "pub line: usize"
+              ]
+            },
+            {
+              "kind": "type",
+              "name": "Result",
+              "file": "",
+              "line": 88,
+              "attrs": {},
+              "generics": "T",
+              "visibility": "pub"
+            },
+            {
+              "kind": "struct",
+              "name": "SubmoduleDecl",
+              "file": "",
+              "line": 407,
+              "attrs": {
+                "derive": [
+                  "Clone",
+                  "Debug",
+                  "bon :: Builder"
+                ]
+              },
+              "generics": "",
+              "visibility": "pub",
+              "fields": [
+                "pub name: String",
+                "pub is_test: bool"
+              ]
+            },
+            {
+              "kind": "struct",
+              "name": "SymbolEntry",
+              "file": "",
+              "line": 417,
+              "attrs": {
+                "derive": [
+                  "Clone",
+                  "Debug",
+                  "bon :: Builder",
+                  "serde :: Serialize"
+                ]
+              },
+              "generics": "",
+              "visibility": "pub",
+              "fields": [
+                "pub crate_name: String",
+                "pub module: String",
+                "pub file: String",
+                "pub line: usize",
+                "pub kind: ItemKind",
+                "pub derive_attrs: Vec<String>"
+              ]
+            },
+            {
+              "kind": "struct",
+              "name": "TypeRef",
+              "file": "",
+              "line": 333,
+              "attrs": {
+                "derive": [
+                  "Clone",
+                  "Debug",
+                  "bon :: Builder",
+                  "serde :: Serialize"
+                ]
+              },
+              "generics": "",
+              "visibility": "pub",
+              "fields": [
+                "pub crate_name: String",
+                "pub kind: String",
+                "pub imported_by: Vec<String>",
+                "pub exported_by: Vec<String>"
+              ]
+            },
+            {
+              "kind": "struct",
+              "name": "WorkspaceInfo",
+              "file": "",
+              "line": 146,
+              "attrs": {
+                "derive": [
+                  "Clone",
+                  "Debug",
+                  "bon :: Builder",
+                  "serde :: Serialize"
+                ]
+              },
+              "generics": "",
+              "visibility": "pub",
+              "fields": [
+                "pub root: String",
+                "pub workspace_name: String"
+              ]
+            },
+            {
+              "kind": "struct",
+              "name": "WorkspaceMap",
+              "file": "",
+              "line": 120,
+              "attrs": {
+                "derive": [
+                  "Clone",
+                  "Debug",
+                  "bon :: Builder",
+                  "serde :: Serialize"
+                ]
+              },
+              "generics": "",
+              "visibility": "pub",
+              "fields": [
+                "pub workspace: WorkspaceInfo",
+                "pub crates: Vec<CrateInfo>",
+                "pub cross_references: CrossReferences",
+                "pub symbols: BTreeMap<CanonicalPath, SymbolEntry>",
+                "pub name_index: BTreeMap<String, Vec<CanonicalPath>>",
+                "pub files: BTreeMap<WorkspaceRelativePath, FileEntry>",
+                "pub errors: Vec<ErrorEntry>",
+                "pub workspace_root: PathBuf"
+              ]
+            },
+            {
+              "kind": "struct",
+              "name": "WorkspaceRelativePath",
+              "file": "",
+              "line": 30,
+              "attrs": {
+                "derive": [
+                  "Clone",
+                  "Debug",
+                  "Eq",
+                  "Hash",
+                  "Ord",
+                  "PartialEq",
+                  "PartialOrd",
+                  "serde :: Deserialize",
+                  "serde :: Serialize"
+                ]
+              },
+              "generics": "",
+              "visibility": "pub",
+              "fields": [
+                "pub String"
+              ]
+            }
+          ],
+          "imports": [
+            {
+              "path": "std::collections::BTreeMap",
+              "line": 0
+            },
+            {
+              "path": "std::path::PathBuf",
+              "line": 0
+            }
+          ]
+        },
+        {
+          "path": "rust-workspace-map::validate",
+          "file": "src/validate.rs",
+          "visibility": "pub",
+          "publicItems": [
+            {
+              "kind": "fn",
+              "name": "validate",
+              "file": "",
+              "line": 72,
+              "attrs": {
+                "doc": [
+                  " Run validation checks on the crate set.",
+                  "",
+                  " Checks performed:",
+                  " - **Orphan files**: `.rs` files on disk not declared in any module tree",
+                  " - **Dead re-exports**: `pub use` to symbols not found in the symbol index",
+                  "",
+                  " Returns a list of `ErrorEntry` findings (severity: Warning)."
+                ]
+              },
+              "generics": "",
+              "visibility": "pub"
+            }
+          ],
+          "imports": [
+            {
+              "path": "crate::schema::CanonicalPath",
+              "line": 0
+            },
+            {
+              "path": "crate::schema::CrateInfo",
+              "line": 0
+            },
+            {
+              "path": "crate::schema::DiagnosticKind",
+              "line": 0
+            },
+            {
+              "path": "crate::schema::ErrorEntry",
+              "line": 0
+            },
+            {
+              "path": "crate::schema::ErrorSeverity",
+              "line": 0
+            },
+            {
+              "path": "std::collections::HashSet",
+              "line": 0
+            },
+            {
+              "path": "std::path::Path",
+              "line": 0
+            },
+            {
+              "path": "walkdir::WalkDir",
+              "line": 0
+            }
+          ],
+          "submodules": [
+            "tests"
+          ]
+        },
+        {
+          "path": "rust-workspace-map::workspace",
+          "file": "src/workspace.rs",
+          "visibility": "pub",
+          "publicItems": [
+            {
+              "kind": "fn",
+              "name": "enumerate_members",
+              "file": "",
+              "line": 59,
+              "attrs": {
+                "doc": [
+                  " Parse the workspace `Cargo.toml`, resolve member paths (including glob",
+                  " patterns), apply `exclude` list, and return absolute paths to each member",
+                  " crate directory.",
+                  "",
+                  " # Errors",
+                  "",
+                  " Returns `Error::MissingWorkspaceSection` if the `Cargo.toml` lacks a",
+                  " `[workspace]` section entirely."
+                ]
+              },
+              "generics": "",
+              "visibility": "pub"
+            },
+            {
+              "kind": "fn",
+              "name": "find_crate_root",
+              "file": "",
+              "line": 34,
+              "attrs": {
+                "doc": [
+                  " Walk up the directory tree from `start_path` to find a `Cargo.toml`",
+                  " containing a `[package]` section. Returns the directory containing it.",
+                  "",
+                  " # Errors",
+                  "",
+                  " Returns `Error::CrateRootNotFound` if no `Cargo.toml` with a `[package]`",
+                  " section is found in any ancestor directory."
+                ]
+              },
+              "generics": "",
+              "visibility": "pub"
+            },
+            {
+              "kind": "fn",
+              "name": "find_workspace_root",
+              "file": "",
+              "line": 11,
+              "attrs": {
+                "doc": [
+                  " Walk up the directory tree from `start_path` to find a `Cargo.toml`",
+                  " containing a `[workspace]` section. Returns the directory containing it.",
+                  "",
+                  " # Errors",
+                  "",
+                  " Returns `Error::WorkspaceRootNotFound` if no `Cargo.toml` with a",
+                  " `[workspace]` section is found in any ancestor directory."
+                ]
+              },
+              "generics": "",
+              "visibility": "pub"
+            },
+            {
+              "kind": "fn",
+              "name": "resolve_crate_roots",
+              "file": "",
+              "line": 257,
+              "attrs": {
+                "doc": [
+                  " Returns `(path, CrateType)` pairs — one for `src/lib.rs` (Lib),",
+                  " one for `src/main.rs` (Bin), or empty if neither exists."
+                ]
+              },
+              "generics": "",
+              "visibility": "pub"
+            }
+          ],
+          "imports": [
+            {
+              "path": "crate::schema::CrateType",
+              "line": 0
+            },
+            {
+              "path": "crate::schema::Error",
+              "line": 0
+            },
+            {
+              "path": "crate::schema::Result",
+              "line": 0
+            },
+            {
+              "path": "std::path::Path",
+              "line": 0
+            },
+            {
+              "path": "std::path::PathBuf",
+              "line": 0
+            }
+          ],
+          "submodules": [
+            "tests"
+          ]
+        },
+        {
+          "path": "rust-workspace-map",
+          "file": "src/main.rs",
+          "visibility": "pub",
+          "imports": [
+            {
+              "path": "clap::Parser",
+              "line": 0
+            },
+            {
+              "path": "clap::Subcommand",
+              "line": 0
+            },
+            {
+              "path": "std::path::PathBuf",
+              "line": 0
+            }
+          ]
+        }
+      ],
+      "deps": {
+        "normal": [
+          "anyhow",
+          "bon",
+          "clap",
+          "glob",
+          "proc-macro2",
+          "rayon",
+          "serde",
+          "serde_json",
+          "syn",
+          "thiserror",
+          "toml",
+          "walkdir"
+        ],
+        "dev": [
+          "tempfile"
+        ]
+      }
+    }
+  ],
+  "crossReferences": {
+    "types": {
+      "rust-workspace-map::build_map": {
+        "crateName": "rust-workspace-map",
+        "kind": "fn",
+        "exportedBy": [
+          "rust-workspace-map"
+        ]
+      },
+      "rust-workspace-map::cargo_info::parse_cargo_toml": {
+        "crateName": "rust-workspace-map",
+        "kind": "fn",
+        "exportedBy": [
+          "rust-workspace-map"
+        ]
+      },
+      "rust-workspace-map::cross_refs::compute": {
+        "crateName": "rust-workspace-map",
+        "kind": "fn",
+        "exportedBy": [
+          "rust-workspace-map"
+        ]
+      },
+      "rust-workspace-map::file_parser::ParsedFile": {
+        "crateName": "rust-workspace-map",
+        "kind": "struct",
+        "exportedBy": [
+          "rust-workspace-map"
+        ]
+      },
+      "rust-workspace-map::file_parser::SynParseError": {
+        "crateName": "rust-workspace-map",
+        "kind": "struct",
+        "exportedBy": [
+          "rust-workspace-map"
+        ]
+      },
+      "rust-workspace-map::file_parser::build_parse_error_entry": {
+        "crateName": "rust-workspace-map",
+        "kind": "fn",
+        "exportedBy": [
+          "rust-workspace-map"
+        ]
+      },
+      "rust-workspace-map::file_parser::extract_impls": {
+        "crateName": "rust-workspace-map",
+        "kind": "fn",
+        "exportedBy": [
+          "rust-workspace-map"
+        ]
+      },
+      "rust-workspace-map::file_parser::extract_imports": {
+        "crateName": "rust-workspace-map",
+        "kind": "fn",
+        "exportedBy": [
+          "rust-workspace-map"
+        ]
+      },
+      "rust-workspace-map::file_parser::extract_public_items": {
+        "crateName": "rust-workspace-map",
+        "kind": "fn",
+        "exportedBy": [
+          "rust-workspace-map"
+        ]
+      },
+      "rust-workspace-map::file_parser::extract_re_exports": {
+        "crateName": "rust-workspace-map",
+        "kind": "fn",
+        "exportedBy": [
+          "rust-workspace-map"
+        ]
+      },
+      "rust-workspace-map::file_parser::extract_submodules": {
+        "crateName": "rust-workspace-map",
+        "kind": "fn",
+        "exportedBy": [
+          "rust-workspace-map"
+        ]
+      },
+      "rust-workspace-map::file_parser::parse_file": {
+        "crateName": "rust-workspace-map",
+        "kind": "fn",
+        "exportedBy": [
+          "rust-workspace-map"
+        ]
+      },
+      "rust-workspace-map::indexes::derive_from_crates": {
+        "crateName": "rust-workspace-map",
+        "kind": "fn",
+        "exportedBy": [
+          "rust-workspace-map"
+        ]
+      },
+      "rust-workspace-map::lookup::DisambiguationHint": {
+        "crateName": "rust-workspace-map",
+        "kind": "struct",
+        "exportedBy": [
+          "rust-workspace-map"
+        ]
+      },
+      "rust-workspace-map::lookup::FileLookupResult": {
+        "crateName": "rust-workspace-map",
+        "kind": "struct",
+        "exportedBy": [
+          "rust-workspace-map"
+        ]
+      },
+      "rust-workspace-map::lookup::SymbolLookupResult": {
+        "crateName": "rust-workspace-map",
+        "kind": "enum",
+        "exportedBy": [
+          "rust-workspace-map"
+        ]
+      },
+      "rust-workspace-map::lookup::lookup_file": {
+        "crateName": "rust-workspace-map",
+        "kind": "fn",
+        "exportedBy": [
+          "rust-workspace-map"
+        ]
+      },
+      "rust-workspace-map::lookup::lookup_symbol": {
+        "crateName": "rust-workspace-map",
+        "kind": "fn",
+        "exportedBy": [
+          "rust-workspace-map"
+        ]
+      },
+      "rust-workspace-map::module_tree::build_module_tree": {
+        "crateName": "rust-workspace-map",
+        "kind": "fn",
+        "exportedBy": [
+          "rust-workspace-map"
+        ]
+      },
+      "rust-workspace-map::module_tree::resolve_module_path": {
+        "crateName": "rust-workspace-map",
+        "kind": "fn",
+        "exportedBy": [
+          "rust-workspace-map"
+        ]
+      },
+      "rust-workspace-map::render::render_json": {
+        "crateName": "rust-workspace-map",
+        "kind": "fn",
+        "exportedBy": [
+          "rust-workspace-map"
+        ]
+      },
+      "rust-workspace-map::render::render_to_writer": {
+        "crateName": "rust-workspace-map",
+        "kind": "fn",
+        "exportedBy": [
+          "rust-workspace-map"
+        ]
+      },
+      "rust-workspace-map::run": {
+        "crateName": "rust-workspace-map",
+        "kind": "fn",
+        "exportedBy": [
+          "rust-workspace-map"
+        ]
+      },
+      "rust-workspace-map::schema::CanonicalPath": {
+        "crateName": "rust-workspace-map",
+        "kind": "struct",
+        "exportedBy": [
+          "rust-workspace-map"
+        ]
+      },
+      "rust-workspace-map::schema::Config": {
+        "crateName": "rust-workspace-map",
+        "kind": "struct",
+        "exportedBy": [
+          "rust-workspace-map"
+        ]
+      },
+      "rust-workspace-map::schema::CrateInfo": {
+        "crateName": "rust-workspace-map",
+        "kind": "struct",
+        "exportedBy": [
+          "rust-workspace-map"
+        ]
+      },
+      "rust-workspace-map::schema::CrateType": {
+        "crateName": "rust-workspace-map",
+        "kind": "enum",
+        "exportedBy": [
+          "rust-workspace-map"
+        ]
+      },
+      "rust-workspace-map::schema::CrossCrateImport": {
+        "crateName": "rust-workspace-map",
+        "kind": "struct",
+        "exportedBy": [
+          "rust-workspace-map"
+        ]
+      },
+      "rust-workspace-map::schema::CrossReferences": {
+        "crateName": "rust-workspace-map",
+        "kind": "struct",
+        "exportedBy": [
+          "rust-workspace-map"
+        ]
+      },
+      "rust-workspace-map::schema::DepInfo": {
+        "crateName": "rust-workspace-map",
+        "kind": "struct",
+        "exportedBy": [
+          "rust-workspace-map"
+        ]
+      },
+      "rust-workspace-map::schema::DiagnosticKind": {
+        "crateName": "rust-workspace-map",
+        "kind": "enum",
+        "exportedBy": [
+          "rust-workspace-map"
+        ]
+      },
+      "rust-workspace-map::schema::Error": {
+        "crateName": "rust-workspace-map",
+        "kind": "enum",
+        "exportedBy": [
+          "rust-workspace-map"
+        ]
+      },
+      "rust-workspace-map::schema::ErrorContext": {
+        "crateName": "rust-workspace-map",
+        "kind": "struct",
+        "exportedBy": [
+          "rust-workspace-map"
+        ]
+      },
+      "rust-workspace-map::schema::ErrorEntry": {
+        "crateName": "rust-workspace-map",
+        "kind": "struct",
+        "exportedBy": [
+          "rust-workspace-map"
+        ]
+      },
+      "rust-workspace-map::schema::ErrorSeverity": {
+        "crateName": "rust-workspace-map",
+        "kind": "enum",
+        "exportedBy": [
+          "rust-workspace-map"
+        ]
+      },
+      "rust-workspace-map::schema::FileEntry": {
+        "crateName": "rust-workspace-map",
+        "kind": "struct",
+        "exportedBy": [
+          "rust-workspace-map"
+        ]
+      },
+      "rust-workspace-map::schema::FileInfo": {
+        "crateName": "rust-workspace-map",
+        "kind": "struct",
+        "exportedBy": [
+          "rust-workspace-map"
+        ]
+      },
+      "rust-workspace-map::schema::ImplInfo": {
+        "crateName": "rust-workspace-map",
+        "kind": "struct",
+        "exportedBy": [
+          "rust-workspace-map"
+        ]
+      },
+      "rust-workspace-map::schema::ImplItem": {
+        "crateName": "rust-workspace-map",
+        "kind": "struct",
+        "exportedBy": [
+          "rust-workspace-map"
+        ]
+      },
+      "rust-workspace-map::schema::ImplItemKind": {
+        "crateName": "rust-workspace-map",
+        "kind": "enum",
+        "exportedBy": [
+          "rust-workspace-map"
+        ]
+      },
+      "rust-workspace-map::schema::Import": {
+        "crateName": "rust-workspace-map",
+        "kind": "struct",
+        "exportedBy": [
+          "rust-workspace-map"
+        ]
+      },
+      "rust-workspace-map::schema::ItemAttrs": {
+        "crateName": "rust-workspace-map",
+        "kind": "struct",
+        "exportedBy": [
+          "rust-workspace-map"
+        ]
+      },
+      "rust-workspace-map::schema::ItemKind": {
+        "crateName": "rust-workspace-map",
+        "kind": "enum",
+        "exportedBy": [
+          "rust-workspace-map"
+        ]
+      },
+      "rust-workspace-map::schema::ModuleInfo": {
+        "crateName": "rust-workspace-map",
+        "kind": "struct",
+        "exportedBy": [
+          "rust-workspace-map"
+        ]
+      },
+      "rust-workspace-map::schema::PackageInfo": {
+        "crateName": "rust-workspace-map",
+        "kind": "struct",
+        "exportedBy": [
+          "rust-workspace-map"
+        ]
+      },
+      "rust-workspace-map::schema::PublicItem": {
+        "crateName": "rust-workspace-map",
+        "kind": "struct",
+        "exportedBy": [
+          "rust-workspace-map"
+        ]
+      },
+      "rust-workspace-map::schema::ReExport": {
+        "crateName": "rust-workspace-map",
+        "kind": "struct",
+        "exportedBy": [
+          "rust-workspace-map"
+        ]
+      },
+      "rust-workspace-map::schema::Result": {
+        "crateName": "rust-workspace-map",
+        "kind": "type",
+        "exportedBy": [
+          "rust-workspace-map"
+        ]
+      },
+      "rust-workspace-map::schema::SubmoduleDecl": {
+        "crateName": "rust-workspace-map",
+        "kind": "struct",
+        "exportedBy": [
+          "rust-workspace-map"
+        ]
+      },
+      "rust-workspace-map::schema::SymbolEntry": {
+        "crateName": "rust-workspace-map",
+        "kind": "struct",
+        "exportedBy": [
+          "rust-workspace-map"
+        ]
+      },
+      "rust-workspace-map::schema::TypeRef": {
+        "crateName": "rust-workspace-map",
+        "kind": "struct",
+        "exportedBy": [
+          "rust-workspace-map"
+        ]
+      },
+      "rust-workspace-map::schema::WorkspaceInfo": {
+        "crateName": "rust-workspace-map",
+        "kind": "struct",
+        "exportedBy": [
+          "rust-workspace-map"
+        ]
+      },
+      "rust-workspace-map::schema::WorkspaceMap": {
+        "crateName": "rust-workspace-map",
+        "kind": "struct",
+        "exportedBy": [
+          "rust-workspace-map"
+        ]
+      },
+      "rust-workspace-map::schema::WorkspaceRelativePath": {
+        "crateName": "rust-workspace-map",
+        "kind": "struct",
+        "exportedBy": [
+          "rust-workspace-map"
+        ]
+      },
+      "rust-workspace-map::validate::validate": {
+        "crateName": "rust-workspace-map",
+        "kind": "fn",
+        "exportedBy": [
+          "rust-workspace-map"
+        ]
+      },
+      "rust-workspace-map::workspace::enumerate_members": {
+        "crateName": "rust-workspace-map",
+        "kind": "fn",
+        "exportedBy": [
+          "rust-workspace-map"
+        ]
+      },
+      "rust-workspace-map::workspace::find_crate_root": {
+        "crateName": "rust-workspace-map",
+        "kind": "fn",
+        "exportedBy": [
+          "rust-workspace-map"
+        ]
+      },
+      "rust-workspace-map::workspace::find_workspace_root": {
+        "crateName": "rust-workspace-map",
+        "kind": "fn",
+        "exportedBy": [
+          "rust-workspace-map"
+        ]
+      },
+      "rust-workspace-map::workspace::resolve_crate_roots": {
+        "crateName": "rust-workspace-map",
+        "kind": "fn",
+        "exportedBy": [
+          "rust-workspace-map"
+        ]
+      }
+    }
+  },
+  "symbols": {
+    "rust-workspace-map::build_map": {
+      "crateName": "rust-workspace-map",
+      "module": "rust-workspace-map",
+      "file": "src/lib.rs",
+      "line": 36,
+      "kind": "fn"
+    },
+    "rust-workspace-map::cargo_info::parse_cargo_toml": {
+      "crateName": "rust-workspace-map",
+      "module": "rust-workspace-map::cargo_info",
+      "file": "src/cargo_info.rs",
+      "line": 11,
+      "kind": "fn"
+    },
+    "rust-workspace-map::cross_refs::compute": {
+      "crateName": "rust-workspace-map",
+      "module": "rust-workspace-map::cross_refs",
+      "file": "src/cross_refs.rs",
+      "line": 12,
+      "kind": "fn"
+    },
+    "rust-workspace-map::file_parser::ParsedFile": {
+      "crateName": "rust-workspace-map",
+      "module": "rust-workspace-map::file_parser",
+      "file": "src/file_parser.rs",
+      "line": 15,
+      "kind": "struct"
+    },
+    "rust-workspace-map::file_parser::SynParseError": {
+      "crateName": "rust-workspace-map",
+      "module": "rust-workspace-map::file_parser",
+      "file": "src/file_parser.rs",
+      "line": 22,
+      "kind": "struct"
+    },
+    "rust-workspace-map::file_parser::build_parse_error_entry": {
+      "crateName": "rust-workspace-map",
+      "module": "rust-workspace-map::file_parser",
+      "file": "src/file_parser.rs",
+      "line": 89,
+      "kind": "fn"
+    },
+    "rust-workspace-map::file_parser::extract_impls": {
+      "crateName": "rust-workspace-map",
+      "module": "rust-workspace-map::file_parser",
+      "file": "src/file_parser.rs",
+      "line": 202,
+      "kind": "fn"
+    },
+    "rust-workspace-map::file_parser::extract_imports": {
+      "crateName": "rust-workspace-map",
+      "module": "rust-workspace-map::file_parser",
+      "file": "src/file_parser.rs",
+      "line": 119,
+      "kind": "fn"
+    },
+    "rust-workspace-map::file_parser::extract_public_items": {
+      "crateName": "rust-workspace-map",
+      "module": "rust-workspace-map::file_parser",
+      "file": "src/file_parser.rs",
+      "line": 104,
+      "kind": "fn"
+    },
+    "rust-workspace-map::file_parser::extract_re_exports": {
+      "crateName": "rust-workspace-map",
+      "module": "rust-workspace-map::file_parser",
+      "file": "src/file_parser.rs",
+      "line": 139,
+      "kind": "fn"
+    },
+    "rust-workspace-map::file_parser::extract_submodules": {
+      "crateName": "rust-workspace-map",
+      "module": "rust-workspace-map::file_parser",
+      "file": "src/file_parser.rs",
+      "line": 168,
+      "kind": "fn"
+    },
+    "rust-workspace-map::file_parser::parse_file": {
+      "crateName": "rust-workspace-map",
+      "module": "rust-workspace-map::file_parser",
+      "file": "src/file_parser.rs",
+      "line": 35,
+      "kind": "fn"
+    },
+    "rust-workspace-map::indexes::derive_from_crates": {
+      "crateName": "rust-workspace-map",
+      "module": "rust-workspace-map::indexes",
+      "file": "src/indexes.rs",
+      "line": 28,
+      "kind": "fn"
+    },
+    "rust-workspace-map::lookup::DisambiguationHint": {
+      "crateName": "rust-workspace-map",
+      "module": "rust-workspace-map::lookup",
+      "file": "src/lookup.rs",
+      "line": 24,
+      "kind": "struct",
+      "deriveAttrs": [
+        "Clone",
+        "Debug",
+        "bon :: Builder",
+        "serde :: Serialize"
+      ]
+    },
+    "rust-workspace-map::lookup::FileLookupResult": {
+      "crateName": "rust-workspace-map",
+      "module": "rust-workspace-map::lookup",
+      "file": "src/lookup.rs",
+      "line": 35,
+      "kind": "struct",
+      "deriveAttrs": [
+        "Clone",
+        "Debug",
+        "bon :: Builder",
+        "serde :: Serialize"
+      ]
+    },
+    "rust-workspace-map::lookup::SymbolLookupResult": {
+      "crateName": "rust-workspace-map",
+      "module": "rust-workspace-map::lookup",
+      "file": "src/lookup.rs",
+      "line": 9,
+      "kind": "enum",
+      "deriveAttrs": [
+        "Clone",
+        "Debug",
+        "serde :: Serialize"
+      ]
+    },
+    "rust-workspace-map::lookup::lookup_file": {
+      "crateName": "rust-workspace-map",
+      "module": "rust-workspace-map::lookup",
+      "file": "src/lookup.rs",
+      "line": 88,
+      "kind": "fn"
+    },
+    "rust-workspace-map::lookup::lookup_symbol": {
+      "crateName": "rust-workspace-map",
+      "module": "rust-workspace-map::lookup",
+      "file": "src/lookup.rs",
+      "line": 47,
+      "kind": "fn"
+    },
+    "rust-workspace-map::module_tree::build_module_tree": {
+      "crateName": "rust-workspace-map",
+      "module": "rust-workspace-map::module_tree",
+      "file": "src/module_tree.rs",
+      "line": 27,
+      "kind": "fn"
+    },
+    "rust-workspace-map::module_tree::resolve_module_path": {
+      "crateName": "rust-workspace-map",
+      "module": "rust-workspace-map::module_tree",
+      "file": "src/module_tree.rs",
+      "line": 11,
+      "kind": "fn"
+    },
+    "rust-workspace-map::render::render_json": {
+      "crateName": "rust-workspace-map",
+      "module": "rust-workspace-map::render",
+      "file": "src/render.rs",
+      "line": 9,
+      "kind": "fn"
+    },
+    "rust-workspace-map::render::render_to_writer": {
+      "crateName": "rust-workspace-map",
+      "module": "rust-workspace-map::render",
+      "file": "src/render.rs",
+      "line": 18,
+      "kind": "fn"
+    },
+    "rust-workspace-map::run": {
+      "crateName": "rust-workspace-map",
+      "module": "rust-workspace-map",
+      "file": "src/lib.rs",
+      "line": 203,
+      "kind": "fn"
+    },
+    "rust-workspace-map::schema::CanonicalPath": {
+      "crateName": "rust-workspace-map",
+      "module": "rust-workspace-map::schema",
+      "file": "src/schema.rs",
+      "line": 8,
+      "kind": "struct",
+      "deriveAttrs": [
+        "Clone",
+        "Debug",
+        "Eq",
+        "Hash",
+        "Ord",
+        "PartialEq",
+        "PartialOrd",
+        "serde :: Deserialize",
+        "serde :: Serialize"
+      ]
+    },
+    "rust-workspace-map::schema::Config": {
+      "crateName": "rust-workspace-map",
+      "module": "rust-workspace-map::schema",
+      "file": "src/schema.rs",
+      "line": 93,
+      "kind": "struct",
+      "deriveAttrs": [
+        "Clone",
+        "Debug",
+        "bon :: Builder"
+      ]
+    },
+    "rust-workspace-map::schema::CrateInfo": {
+      "crateName": "rust-workspace-map",
+      "module": "rust-workspace-map::schema",
+      "file": "src/schema.rs",
+      "line": 155,
+      "kind": "struct",
+      "deriveAttrs": [
+        "Clone",
+        "Debug",
+        "bon :: Builder",
+        "serde :: Serialize"
+      ]
+    },
+    "rust-workspace-map::schema::CrateType": {
+      "crateName": "rust-workspace-map",
+      "module": "rust-workspace-map::schema",
+      "file": "src/schema.rs",
+      "line": 109,
+      "kind": "enum",
+      "deriveAttrs": [
+        "Clone",
+        "Copy",
+        "Debug",
+        "Eq",
+        "PartialEq",
+        "serde :: Serialize"
+      ]
+    },
+    "rust-workspace-map::schema::CrossCrateImport": {
+      "crateName": "rust-workspace-map",
+      "module": "rust-workspace-map::schema",
+      "file": "src/schema.rs",
+      "line": 317,
+      "kind": "struct",
+      "deriveAttrs": [
+        "Clone",
+        "Debug",
+        "bon :: Builder",
+        "serde :: Serialize"
+      ]
+    },
+    "rust-workspace-map::schema::CrossReferences": {
+      "crateName": "rust-workspace-map",
+      "module": "rust-workspace-map::schema",
+      "file": "src/schema.rs",
+      "line": 326,
+      "kind": "struct",
+      "deriveAttrs": [
+        "Clone",
+        "Debug",
+        "Default",
+        "bon :: Builder",
+        "serde :: Serialize"
+      ]
+    },
+    "rust-workspace-map::schema::DepInfo": {
+      "crateName": "rust-workspace-map",
+      "module": "rust-workspace-map::schema",
+      "file": "src/schema.rs",
+      "line": 180,
+      "kind": "struct",
+      "deriveAttrs": [
+        "Clone",
+        "Debug",
+        "Default",
+        "bon :: Builder",
+        "serde :: Serialize"
+      ]
+    },
+    "rust-workspace-map::schema::DiagnosticKind": {
+      "crateName": "rust-workspace-map",
+      "module": "rust-workspace-map::schema",
+      "file": "src/schema.rs",
+      "line": 350,
+      "kind": "enum",
+      "deriveAttrs": [
+        "Clone",
+        "Copy",
+        "Debug",
+        "Eq",
+        "PartialEq",
+        "serde :: Serialize"
+      ]
+    },
+    "rust-workspace-map::schema::Error": {
+      "crateName": "rust-workspace-map",
+      "module": "rust-workspace-map::schema",
+      "file": "src/schema.rs",
+      "line": 53,
+      "kind": "enum",
+      "deriveAttrs": [
+        "Debug",
+        "thiserror :: Error"
+      ]
+    },
+    "rust-workspace-map::schema::ErrorContext": {
+      "crateName": "rust-workspace-map",
+      "module": "rust-workspace-map::schema",
+      "file": "src/schema.rs",
+      "line": 378,
+      "kind": "struct",
+      "deriveAttrs": [
+        "Clone",
+        "Debug",
+        "Default",
+        "bon :: Builder",
+        "serde :: Serialize"
+      ]
+    },
+    "rust-workspace-map::schema::ErrorEntry": {
+      "crateName": "rust-workspace-map",
+      "module": "rust-workspace-map::schema",
+      "file": "src/schema.rs",
+      "line": 442,
+      "kind": "struct",
+      "deriveAttrs": [
+        "Clone",
+        "Debug",
+        "bon :: Builder",
+        "serde :: Serialize"
+      ]
+    },
+    "rust-workspace-map::schema::ErrorSeverity": {
+      "crateName": "rust-workspace-map",
+      "module": "rust-workspace-map::schema",
+      "file": "src/schema.rs",
+      "line": 367,
+      "kind": "enum",
+      "deriveAttrs": [
+        "Clone",
+        "Copy",
+        "Debug",
+        "Eq",
+        "PartialEq",
+        "serde :: Serialize"
+      ]
+    },
+    "rust-workspace-map::schema::FileEntry": {
+      "crateName": "rust-workspace-map",
+      "module": "rust-workspace-map::schema",
+      "file": "src/schema.rs",
+      "line": 431,
+      "kind": "struct",
+      "deriveAttrs": [
+        "Clone",
+        "Debug",
+        "bon :: Builder",
+        "serde :: Serialize"
+      ]
+    },
+    "rust-workspace-map::schema::FileInfo": {
+      "crateName": "rust-workspace-map",
+      "module": "rust-workspace-map::schema",
+      "file": "src/schema.rs",
+      "line": 398,
+      "kind": "struct",
+      "deriveAttrs": [
+        "Clone",
+        "Debug",
+        "Default"
+      ]
+    },
+    "rust-workspace-map::schema::ImplInfo": {
+      "crateName": "rust-workspace-map",
+      "module": "rust-workspace-map::schema",
+      "file": "src/schema.rs",
+      "line": 273,
+      "kind": "struct",
+      "deriveAttrs": [
+        "Clone",
+        "Debug",
+        "bon :: Builder",
+        "serde :: Serialize"
+      ]
+    },
+    "rust-workspace-map::schema::ImplItem": {
+      "crateName": "rust-workspace-map",
+      "module": "rust-workspace-map::schema",
+      "file": "src/schema.rs",
+      "line": 282,
+      "kind": "struct",
+      "deriveAttrs": [
+        "Clone",
+        "Debug",
+        "bon :: Builder",
+        "serde :: Serialize"
+      ]
+    },
+    "rust-workspace-map::schema::ImplItemKind": {
+      "crateName": "rust-workspace-map",
+      "module": "rust-workspace-map::schema",
+      "file": "src/schema.rs",
+      "line": 290,
+      "kind": "enum",
+      "deriveAttrs": [
+        "Clone",
+        "Debug",
+        "serde :: Serialize"
+      ]
+    },
+    "rust-workspace-map::schema::Import": {
+      "crateName": "rust-workspace-map",
+      "module": "rust-workspace-map::schema",
+      "file": "src/schema.rs",
+      "line": 300,
+      "kind": "struct",
+      "deriveAttrs": [
+        "Clone",
+        "Debug",
+        "bon :: Builder",
+        "serde :: Serialize"
+      ]
+    },
+    "rust-workspace-map::schema::ItemAttrs": {
+      "crateName": "rust-workspace-map",
+      "module": "rust-workspace-map::schema",
+      "file": "src/schema.rs",
+      "line": 259,
+      "kind": "struct",
+      "deriveAttrs": [
+        "Clone",
+        "Debug",
+        "Default",
+        "bon :: Builder",
+        "serde :: Serialize"
+      ]
+    },
+    "rust-workspace-map::schema::ItemKind": {
+      "crateName": "rust-workspace-map",
+      "module": "rust-workspace-map::schema",
+      "file": "src/schema.rs",
+      "line": 248,
+      "kind": "enum",
+      "deriveAttrs": [
+        "Clone",
+        "Debug",
+        "PartialEq",
+        "serde :: Serialize"
+      ]
+    },
+    "rust-workspace-map::schema::ModuleInfo": {
+      "crateName": "rust-workspace-map",
+      "module": "rust-workspace-map::schema",
+      "file": "src/schema.rs",
+      "line": 198,
+      "kind": "struct",
+      "deriveAttrs": [
+        "Clone",
+        "Debug",
+        "bon :: Builder",
+        "serde :: Serialize"
+      ]
+    },
+    "rust-workspace-map::schema::PackageInfo": {
+      "crateName": "rust-workspace-map",
+      "module": "rust-workspace-map::schema",
+      "file": "src/schema.rs",
+      "line": 169,
+      "kind": "struct",
+      "deriveAttrs": [
+        "Clone",
+        "Debug",
+        "bon :: Builder",
+        "serde :: Serialize"
+      ]
+    },
+    "rust-workspace-map::schema::PublicItem": {
+      "crateName": "rust-workspace-map",
+      "module": "rust-workspace-map::schema",
+      "file": "src/schema.rs",
+      "line": 224,
+      "kind": "struct",
+      "deriveAttrs": [
+        "Clone",
+        "Debug",
+        "bon :: Builder",
+        "serde :: Serialize"
+      ]
+    },
+    "rust-workspace-map::schema::ReExport": {
+      "crateName": "rust-workspace-map",
+      "module": "rust-workspace-map::schema",
+      "file": "src/schema.rs",
+      "line": 307,
+      "kind": "struct",
+      "deriveAttrs": [
+        "Clone",
+        "Debug",
+        "bon :: Builder",
+        "serde :: Serialize"
+      ]
+    },
+    "rust-workspace-map::schema::Result": {
+      "crateName": "rust-workspace-map",
+      "module": "rust-workspace-map::schema",
+      "file": "src/schema.rs",
+      "line": 88,
+      "kind": "type"
+    },
+    "rust-workspace-map::schema::SubmoduleDecl": {
+      "crateName": "rust-workspace-map",
+      "module": "rust-workspace-map::schema",
+      "file": "src/schema.rs",
+      "line": 407,
+      "kind": "struct",
+      "deriveAttrs": [
+        "Clone",
+        "Debug",
+        "bon :: Builder"
+      ]
+    },
+    "rust-workspace-map::schema::SymbolEntry": {
+      "crateName": "rust-workspace-map",
+      "module": "rust-workspace-map::schema",
+      "file": "src/schema.rs",
+      "line": 417,
+      "kind": "struct",
+      "deriveAttrs": [
+        "Clone",
+        "Debug",
+        "bon :: Builder",
+        "serde :: Serialize"
+      ]
+    },
+    "rust-workspace-map::schema::TypeRef": {
+      "crateName": "rust-workspace-map",
+      "module": "rust-workspace-map::schema",
+      "file": "src/schema.rs",
+      "line": 333,
+      "kind": "struct",
+      "deriveAttrs": [
+        "Clone",
+        "Debug",
+        "bon :: Builder",
+        "serde :: Serialize"
+      ]
+    },
+    "rust-workspace-map::schema::WorkspaceInfo": {
+      "crateName": "rust-workspace-map",
+      "module": "rust-workspace-map::schema",
+      "file": "src/schema.rs",
+      "line": 146,
+      "kind": "struct",
+      "deriveAttrs": [
+        "Clone",
+        "Debug",
+        "bon :: Builder",
+        "serde :: Serialize"
+      ]
+    },
+    "rust-workspace-map::schema::WorkspaceMap": {
+      "crateName": "rust-workspace-map",
+      "module": "rust-workspace-map::schema",
+      "file": "src/schema.rs",
+      "line": 120,
+      "kind": "struct",
+      "deriveAttrs": [
+        "Clone",
+        "Debug",
+        "bon :: Builder",
+        "serde :: Serialize"
+      ]
+    },
+    "rust-workspace-map::schema::WorkspaceRelativePath": {
+      "crateName": "rust-workspace-map",
+      "module": "rust-workspace-map::schema",
+      "file": "src/schema.rs",
+      "line": 30,
+      "kind": "struct",
+      "deriveAttrs": [
+        "Clone",
+        "Debug",
+        "Eq",
+        "Hash",
+        "Ord",
+        "PartialEq",
+        "PartialOrd",
+        "serde :: Deserialize",
+        "serde :: Serialize"
+      ]
+    },
+    "rust-workspace-map::validate::validate": {
+      "crateName": "rust-workspace-map",
+      "module": "rust-workspace-map::validate",
+      "file": "src/validate.rs",
+      "line": 72,
+      "kind": "fn"
+    },
+    "rust-workspace-map::workspace::enumerate_members": {
+      "crateName": "rust-workspace-map",
+      "module": "rust-workspace-map::workspace",
+      "file": "src/workspace.rs",
+      "line": 59,
+      "kind": "fn"
+    },
+    "rust-workspace-map::workspace::find_crate_root": {
+      "crateName": "rust-workspace-map",
+      "module": "rust-workspace-map::workspace",
+      "file": "src/workspace.rs",
+      "line": 34,
+      "kind": "fn"
+    },
+    "rust-workspace-map::workspace::find_workspace_root": {
+      "crateName": "rust-workspace-map",
+      "module": "rust-workspace-map::workspace",
+      "file": "src/workspace.rs",
+      "line": 11,
+      "kind": "fn"
+    },
+    "rust-workspace-map::workspace::resolve_crate_roots": {
+      "crateName": "rust-workspace-map",
+      "module": "rust-workspace-map::workspace",
+      "file": "src/workspace.rs",
+      "line": 257,
+      "kind": "fn"
+    }
+  },
+  "nameIndex": {
+    "CanonicalPath": [
+      "rust-workspace-map::schema::CanonicalPath"
+    ],
+    "Config": [
+      "rust-workspace-map::schema::Config"
+    ],
+    "CrateInfo": [
+      "rust-workspace-map::schema::CrateInfo"
+    ],
+    "CrateType": [
+      "rust-workspace-map::schema::CrateType"
+    ],
+    "CrossCrateImport": [
+      "rust-workspace-map::schema::CrossCrateImport"
+    ],
+    "CrossReferences": [
+      "rust-workspace-map::schema::CrossReferences"
+    ],
+    "DepInfo": [
+      "rust-workspace-map::schema::DepInfo"
+    ],
+    "DiagnosticKind": [
+      "rust-workspace-map::schema::DiagnosticKind"
+    ],
+    "DisambiguationHint": [
+      "rust-workspace-map::lookup::DisambiguationHint"
+    ],
+    "Error": [
+      "rust-workspace-map::schema::Error"
+    ],
+    "ErrorContext": [
+      "rust-workspace-map::schema::ErrorContext"
+    ],
+    "ErrorEntry": [
+      "rust-workspace-map::schema::ErrorEntry"
+    ],
+    "ErrorSeverity": [
+      "rust-workspace-map::schema::ErrorSeverity"
+    ],
+    "FileEntry": [
+      "rust-workspace-map::schema::FileEntry"
+    ],
+    "FileInfo": [
+      "rust-workspace-map::schema::FileInfo"
+    ],
+    "FileLookupResult": [
+      "rust-workspace-map::lookup::FileLookupResult"
+    ],
+    "ImplInfo": [
+      "rust-workspace-map::schema::ImplInfo"
+    ],
+    "ImplItem": [
+      "rust-workspace-map::schema::ImplItem"
+    ],
+    "ImplItemKind": [
+      "rust-workspace-map::schema::ImplItemKind"
+    ],
+    "Import": [
+      "rust-workspace-map::schema::Import"
+    ],
+    "ItemAttrs": [
+      "rust-workspace-map::schema::ItemAttrs"
+    ],
+    "ItemKind": [
+      "rust-workspace-map::schema::ItemKind"
+    ],
+    "ModuleInfo": [
+      "rust-workspace-map::schema::ModuleInfo"
+    ],
+    "PackageInfo": [
+      "rust-workspace-map::schema::PackageInfo"
+    ],
+    "ParsedFile": [
+      "rust-workspace-map::file_parser::ParsedFile"
+    ],
+    "PublicItem": [
+      "rust-workspace-map::schema::PublicItem"
+    ],
+    "ReExport": [
+      "rust-workspace-map::schema::ReExport"
+    ],
+    "Result": [
+      "rust-workspace-map::schema::Result"
+    ],
+    "SubmoduleDecl": [
+      "rust-workspace-map::schema::SubmoduleDecl"
+    ],
+    "SymbolEntry": [
+      "rust-workspace-map::schema::SymbolEntry"
+    ],
+    "SymbolLookupResult": [
+      "rust-workspace-map::lookup::SymbolLookupResult"
+    ],
+    "SynParseError": [
+      "rust-workspace-map::file_parser::SynParseError"
+    ],
+    "TypeRef": [
+      "rust-workspace-map::schema::TypeRef"
+    ],
+    "WorkspaceInfo": [
+      "rust-workspace-map::schema::WorkspaceInfo"
+    ],
+    "WorkspaceMap": [
+      "rust-workspace-map::schema::WorkspaceMap"
+    ],
+    "WorkspaceRelativePath": [
+      "rust-workspace-map::schema::WorkspaceRelativePath"
+    ],
+    "build_map": [
+      "rust-workspace-map::build_map"
+    ],
+    "build_module_tree": [
+      "rust-workspace-map::module_tree::build_module_tree"
+    ],
+    "build_parse_error_entry": [
+      "rust-workspace-map::file_parser::build_parse_error_entry"
+    ],
+    "compute": [
+      "rust-workspace-map::cross_refs::compute"
+    ],
+    "derive_from_crates": [
+      "rust-workspace-map::indexes::derive_from_crates"
+    ],
+    "enumerate_members": [
+      "rust-workspace-map::workspace::enumerate_members"
+    ],
+    "extract_impls": [
+      "rust-workspace-map::file_parser::extract_impls"
+    ],
+    "extract_imports": [
+      "rust-workspace-map::file_parser::extract_imports"
+    ],
+    "extract_public_items": [
+      "rust-workspace-map::file_parser::extract_public_items"
+    ],
+    "extract_re_exports": [
+      "rust-workspace-map::file_parser::extract_re_exports"
+    ],
+    "extract_submodules": [
+      "rust-workspace-map::file_parser::extract_submodules"
+    ],
+    "find_crate_root": [
+      "rust-workspace-map::workspace::find_crate_root"
+    ],
+    "find_workspace_root": [
+      "rust-workspace-map::workspace::find_workspace_root"
+    ],
+    "lookup_file": [
+      "rust-workspace-map::lookup::lookup_file"
+    ],
+    "lookup_symbol": [
+      "rust-workspace-map::lookup::lookup_symbol"
+    ],
+    "parse_cargo_toml": [
+      "rust-workspace-map::cargo_info::parse_cargo_toml"
+    ],
+    "parse_file": [
+      "rust-workspace-map::file_parser::parse_file"
+    ],
+    "render_json": [
+      "rust-workspace-map::render::render_json"
+    ],
+    "render_to_writer": [
+      "rust-workspace-map::render::render_to_writer"
+    ],
+    "resolve_crate_roots": [
+      "rust-workspace-map::workspace::resolve_crate_roots"
+    ],
+    "resolve_module_path": [
+      "rust-workspace-map::module_tree::resolve_module_path"
+    ],
+    "run": [
+      "rust-workspace-map::run"
+    ],
+    "validate": [
+      "rust-workspace-map::validate::validate"
+    ]
+  },
+  "files": {
+    "src/cargo_info.rs": {
+      "modulePath": "rust-workspace-map::cargo_info",
+      "parentModuleFile": "src/lib.rs",
+      "isCrateRoot": false
+    },
+    "src/cross_refs.rs": {
+      "modulePath": "rust-workspace-map::cross_refs",
+      "parentModuleFile": "src/lib.rs",
+      "isCrateRoot": false
+    },
+    "src/file_parser.rs": {
+      "modulePath": "rust-workspace-map::file_parser",
+      "parentModuleFile": "src/lib.rs",
+      "isCrateRoot": false
+    },
+    "src/indexes.rs": {
+      "modulePath": "rust-workspace-map::indexes",
+      "parentModuleFile": "src/lib.rs",
+      "isCrateRoot": false
+    },
+    "src/lib.rs": {
+      "modulePath": "rust-workspace-map",
+      "isCrateRoot": true
+    },
+    "src/lookup.rs": {
+      "modulePath": "rust-workspace-map::lookup",
+      "parentModuleFile": "src/lib.rs",
+      "isCrateRoot": false
+    },
+    "src/main.rs": {
+      "modulePath": "rust-workspace-map",
+      "isCrateRoot": true
+    },
+    "src/module_tree.rs": {
+      "modulePath": "rust-workspace-map::module_tree",
+      "parentModuleFile": "src/lib.rs",
+      "isCrateRoot": false
+    },
+    "src/render.rs": {
+      "modulePath": "rust-workspace-map::render",
+      "parentModuleFile": "src/lib.rs",
+      "isCrateRoot": false
+    },
+    "src/schema.rs": {
+      "modulePath": "rust-workspace-map::schema",
+      "parentModuleFile": "src/lib.rs",
+      "isCrateRoot": false
+    },
+    "src/validate.rs": {
+      "modulePath": "rust-workspace-map::validate",
+      "parentModuleFile": "src/lib.rs",
+      "isCrateRoot": false
+    },
+    "src/workspace.rs": {
+      "modulePath": "rust-workspace-map::workspace",
+      "parentModuleFile": "src/lib.rs",
+      "isCrateRoot": false
+    }
+  }
+}

@@ -24,6 +24,30 @@ pub fn find_workspace_root(start_path: &Path) -> Result<PathBuf> {
     Err(Error::WorkspaceRootNotFound(start_path.to_path_buf()))
 }
 
+/// Walk up the directory tree from `start_path` to find a `Cargo.toml`
+/// containing a `[package]` section. Returns the directory containing it.
+///
+/// # Errors
+///
+/// Returns `Error::CrateRootNotFound` if no `Cargo.toml` with a `[package]`
+/// section is found in any ancestor directory.
+pub fn find_crate_root(start_path: &Path) -> Result<PathBuf> {
+    for ancestor in start_path.ancestors() {
+        let cargo_toml = ancestor.join("Cargo.toml");
+        if cargo_toml.exists() {
+            let content =
+                std::fs::read_to_string(&cargo_toml).map_err(|source| Error::FileRead {
+                    path: cargo_toml.clone(),
+                    source,
+                })?;
+            if content.contains("[package]") {
+                return Ok(ancestor.to_path_buf());
+            }
+        }
+    }
+    Err(Error::CrateRootNotFound(start_path.to_path_buf()))
+}
+
 /// Parse the workspace `Cargo.toml`, resolve member paths (including glob
 /// patterns), apply `exclude` list, and return absolute paths to each member
 /// crate directory.
@@ -202,6 +226,29 @@ exclude = ["b"]
         let roots = resolve_crate_roots(tmp.path());
         assert_eq!(roots.len(), 1);
         assert_eq!(roots[0].1, CrateType::Bin);
+    }
+
+    #[test]
+    fn find_crate_root_finds_package_section() {
+        let tmp = tempfile::tempdir().unwrap();
+        setup_crate(tmp.path());
+        // Walk from a nested subdirectory inside src
+        let nested = tmp.path().join("src").join("subdir");
+        std::fs::create_dir_all(&nested).unwrap();
+        let result = find_crate_root(&nested).unwrap();
+        assert_eq!(result, tmp.path());
+    }
+
+    #[test]
+    fn find_crate_root_returns_err_for_no_package() {
+        let tmp = tempfile::tempdir().unwrap();
+        // No Cargo.toml at all — ancestors() walks up and finds nothing
+        let result = find_crate_root(tmp.path());
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            Error::CrateRootNotFound(_) => {},
+            other => panic!("expected CrateRootNotFound, got {:?}", other),
+        }
     }
 }
 /// Returns `(path, CrateType)` pairs — one for `src/lib.rs` (Lib),
