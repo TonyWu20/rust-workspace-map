@@ -1,0 +1,100 @@
+{
+  "meta": {
+    "title": "Single-Crate Support + Fix Silent Error Handling",
+    "source_branch": "single-crate-support"
+  },
+  "architecture_notes": [
+    "Auto-detect: try workspace discovery first; on WorkspaceRootNotFound or MissingWorkspaceSection, fall back to single-crate discovery. No new CLI flags.",
+    "Two separate functions: find_workspace_root (looks for [workspace]) and find_crate_root (looks for [package]). A combined function would stop at a workspace member's Cargo.toml.",
+    "D1 enhancement: catch MissingWorkspaceSection from enumerate_members as a fallback trigger, not just WorkspaceRootNotFound. This handles the false positive where Cargo.toml contains '[workspace]' as a comment or string literal.",
+    "validate::validate path safety confirmed \u2014 check_orphan_files joins workspace_root with crate_info.root which is always workspace-relative; safe in both multi-crate and single-crate modes.",
+    "workspace_name in single-crate mode will be the crate directory name (e.g., 'rust-workspace-map') derived from workspace_root.file_name().",
+    "find_crate_root must structurally mirror find_workspace_root: same ancestors() walk, same FileRead error mapping, same .contains() check style, same doc-comment structure with # Errors section.",
+    "Orchestration lives in lib.rs:build_map \u2014 workspace.rs remains pure with single-responsibility functions.",
+    "All changes stay within the single rust-workspace-map crate. No new crates introduced.",
+    "Library code in this phase follows ch12-04 TDD: tests claim interfaces first via tdd_interface, then implementations evolve to meet them. See the tdd-pattern.md reference for the full workflow."
+  ],
+  "known_pitfalls": [
+    "lib.rs line 18-21 does NOT import schema::Error \u2014 must add Error to the use schema::{...} import for the match pattern in TASK-pipeline-fallback.",
+    "relativize_path silently returns original path on strip_prefix failure \u2014 no error propagation, works correctly because crate_info.root paths are always workspace-relative.",
+    "workspace_name is derived from workspace_root.file_name().unwrap_or_default(). In single-crate mode this is the crate directory name, which is reasonable.",
+    "D1 enhancement nests a second match inside the Ok(root) arm: match enumerate_members, catch MissingWorkspaceSection as fallback trigger alongside the outer WorkspaceRootNotFound.",
+    "MissingWorkspaceSection false positive: Cargo.toml with '[workspace]' in a comment or string literal triggers find_workspace_root to return Ok, but enumerate_members fails. The D1 enhancement catches this.",
+    "TASK-test-single-crate-module-tree MUST exercise depth >= 2 submodule resolution (e.g., lib -> helpers/mod.rs -> helpers/sub.rs).",
+    "Do NOT touch these modules: cargo_info.rs, file_parser.rs, module_tree.rs, cross_refs.rs, render.rs, validate.rs, indexes.rs, lookup.rs.",
+    "No new CLI flags \u2014 the feature is auto-detect only. Do not add --single-crate or similar flags.",
+    "Both find_workspace_root and find_crate_root use .contains() (string match) rather than toml parsing. This is consistent with existing code. The D1 MissingWorkspaceSection fallback mitigates the false-positive risk.",
+    "unit tests in workspace.rs use the existing write_cargo_toml and setup_crate helpers (one-param version). Integration tests use the separate setup_crate(dir, lib_content) helper (two-param version)."
+  ],
+  "task_groups": [
+    {
+      "group_id": "group-core",
+      "reason": "All tasks modify shared schema.rs/workspace.rs files \u2014 the core discovery enhancement. TASK-single-crate-core-01 is a prerequisite for TASK-single-crate-core-02 (the error variant must exist before the function compiles).",
+      "tasks": [
+        "TASK-single-crate-core-01",
+        "TASK-single-crate-core-02"
+      ],
+      "depends_on_groups": []
+    }
+  ],
+  "tasks": [
+    {
+      "id": "TASK-single-crate-core-01",
+      "kind": "direct",
+      "description": "Add CrateRootNotFound variant to schema::Error enum so find_crate_root can signal discovery failure.",
+      "files_in_scope": [
+        "src/schema.rs"
+      ],
+      "changes": [
+        {
+          "path": "src/schema.rs",
+          "action": "modify",
+          "guidance": "Add a new error variant to the Error enum. Insert it after the WorkspaceRootNotFound variant (line 55), before the FileRead variant (line 57):\n\n```rust\n#[error(\"no Cargo.toml with [package] section found starting from {0}\")]\nCrateRootNotFound(PathBuf),\n```\n\nThis variant carries a PathBuf (the start_path that was searched), matching the pattern of WorkspaceRootNotFound. The thiserror attribute format is consistent with other variants. The variant is automatically reachable \u2014 schema::Error is already imported by workspace.rs via `use crate::schema::{CrateType, Error, Result}`."
+        }
+      ],
+      "wiring_checklist": [],
+      "type_reference": {
+        "CrateRootNotFound": "#[error(\"no Cargo.toml with [package] section found starting from {0}\")] CrateRootNotFound(PathBuf)"
+      },
+      "acceptance": [
+        "cargo check --workspace"
+      ],
+      "depends_on": []
+    },
+    {
+      "id": "TASK-single-crate-core-02",
+      "kind": "lib-tdd",
+      "description": "Add find_crate_root discovery function + 2 unit tests via test-driven development.",
+      "files_in_scope": [
+        "src/workspace.rs"
+      ],
+      "changes": [
+        {
+          "path": "src/workspace.rs",
+          "action": "modify",
+          "guidance": "Implement find_crate_root following the TDD cycle. The test (tdd_interface.test_code) defines the contract \u2014 write it first, confirm failure, then implement.\n\nImplementation approach: Walk up the directory tree using start_path.ancestors(). For each ancestor, check if Cargo.toml exists. If it does, read the file contents. Map I/O errors to Error::FileRead { path, source }. Check if the content contains the string \"[package]\". If found, return Ok(ancestor.to_path_buf()). If the loop completes without finding a [package] section, return Err(Error::CrateRootNotFound(start_path.to_path_buf())).\n\nPlacement: Insert after find_workspace_root (after line 25), before enumerate_members (line 35). Use the same doc-comment structure as find_workspace_root: /// description, /// # Errors section. The function must be pub.\n\nFor the unit tests: Add both test functions inside the existing #[cfg(test)] mod tests block, before its closing } at line 206. The test module already has write_cargo_toml and setup_crate (one-param) helpers via `use super::*`. No new imports needed.\n\nEdge cases handled: empty directory tree (ancestors() always includes start_path itself), Cargo.toml without [package] (continues walking), I/O error reading Cargo.toml (returns FileRead error)."
+        }
+      ],
+      "tdd_interface": {
+        "test_file": "src/workspace.rs",
+        "test_module": "tests",
+        "test_fn_name": "find_crate_root_finds_package_section",
+        "test_code": "#[test]\nfn find_crate_root_finds_package_section() {\n    let tmp = tempfile::tempdir().unwrap();\n    setup_crate(tmp.path());\n    // Walk from a nested subdirectory inside src\n    let nested = tmp.path().join(\"src\").join(\"subdir\");\n    std::fs::create_dir_all(&nested).unwrap();\n    let result = find_crate_root(&nested).unwrap();\n    assert_eq!(result, tmp.path());\n}\n\n#[test]\nfn find_crate_root_returns_err_for_no_package() {\n    let tmp = tempfile::tempdir().unwrap();\n    // No Cargo.toml at all \u2014 ancestors() walks up and finds nothing\n    let result = find_crate_root(tmp.path());\n    assert!(result.is_err());\n    match result.unwrap_err() {\n        Error::CrateRootNotFound(_) => {},\n        other => panic!(\"expected CrateRootNotFound, got {:?}\", other),\n    }\n}",
+        "signature": "pub fn find_crate_root(start_path: &Path) -> Result<PathBuf>",
+        "expected_behavior": "find_crate_root walks up from start_path through ancestors, returns the first directory whose Cargo.toml contains a [package] section. Returns CrateRootNotFound error if no Cargo.toml with [package] is found in any ancestor (including start_path itself). Returns FileRead error if a Cargo.toml exists but cannot be read."
+      },
+      "wiring_checklist": [],
+      "type_reference": {
+        "find_crate_root": "pub fn find_crate_root(start_path: &Path) -> Result<PathBuf>"
+      },
+      "acceptance": [
+        "cargo test find_crate_root_finds_package_section",
+        "cargo test find_crate_root_returns_err_for_no_package",
+        "cargo check --workspace"
+      ],
+      "depends_on": [
+        "TASK-single-crate-core-01"
+      ]
+    }
+  ]
+}

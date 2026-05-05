@@ -1,0 +1,62 @@
+{
+  "meta": {
+    "title": "Single-Crate Support + Fix Silent Error Handling",
+    "source_branch": "single-crate-support"
+  },
+  "architecture_notes": [
+    "Auto-detect: try workspace discovery first; on WorkspaceRootNotFound or MissingWorkspaceSection, fall back to single-crate discovery. No new CLI flags.",
+    "Two separate functions: find_workspace_root (looks for [workspace]) and find_crate_root (looks for [package]). A combined function would stop at a workspace member's Cargo.toml.",
+    "D1 enhancement: catch MissingWorkspaceSection from enumerate_members as a fallback trigger, not just WorkspaceRootNotFound. This handles the false positive where Cargo.toml contains '[workspace]' as a comment or string literal.",
+    "validate::validate path safety confirmed \u2014 check_orphan_files joins workspace_root with crate_info.root which is always workspace-relative; safe in both multi-crate and single-crate modes.",
+    "workspace_name in single-crate mode will be the crate directory name (e.g., 'rust-workspace-map') derived from workspace_root.file_name().",
+    "find_crate_root must structurally mirror find_workspace_root: same ancestors() walk, same FileRead error mapping, same .contains() check style, same doc-comment structure with # Errors section.",
+    "Orchestration lives in lib.rs:build_map \u2014 workspace.rs remains pure with single-responsibility functions.",
+    "All changes stay within the single rust-workspace-map crate. No new crates introduced.",
+    "Library code in this phase follows ch12-04 TDD: tests claim interfaces first via tdd_interface, then implementations evolve to meet them. See the tdd-pattern.md reference for the full workflow."
+  ],
+  "known_pitfalls": [
+    "lib.rs line 18-21 does NOT import schema::Error \u2014 must add Error to the use schema::{...} import for the match pattern in TASK-pipeline-fallback.",
+    "relativize_path silently returns original path on strip_prefix failure \u2014 no error propagation, works correctly because crate_info.root paths are always workspace-relative.",
+    "workspace_name is derived from workspace_root.file_name().unwrap_or_default(). In single-crate mode this is the crate directory name, which is reasonable.",
+    "D1 enhancement nests a second match inside the Ok(root) arm: match enumerate_members, catch MissingWorkspaceSection as fallback trigger alongside the outer WorkspaceRootNotFound.",
+    "MissingWorkspaceSection false positive: Cargo.toml with '[workspace]' in a comment or string literal triggers find_workspace_root to return Ok, but enumerate_members fails. The D1 enhancement catches this.",
+    "TASK-test-single-crate-module-tree MUST exercise depth >= 2 submodule resolution (e.g., lib -> helpers/mod.rs -> helpers/sub.rs).",
+    "Do NOT touch these modules: cargo_info.rs, file_parser.rs, module_tree.rs, cross_refs.rs, render.rs, validate.rs, indexes.rs, lookup.rs.",
+    "No new CLI flags \u2014 the feature is auto-detect only. Do not add --single-crate or similar flags.",
+    "Both find_workspace_root and find_crate_root use .contains() (string match) rather than toml parsing. This is consistent with existing code. The D1 MissingWorkspaceSection fallback mitigates the false-positive risk.",
+    "unit tests in workspace.rs use the existing write_cargo_toml and setup_crate helpers (one-param version). Integration tests use the separate setup_crate(dir, lib_content) helper (two-param version)."
+  ],
+  "task_groups": [
+    {
+      "group_id": "group-silent-exit",
+      "reason": "Self-contained fix for silent error exits in main.rs \u2014 no dependencies on other groups. Can run in parallel with group-fallback once group-core completes.",
+      "tasks": [
+        "TASK-silent-exit-fix"
+      ],
+      "depends_on_groups": []
+    }
+  ],
+  "tasks": [
+    {
+      "id": "TASK-silent-exit-fix",
+      "kind": "direct",
+      "description": "Fix 4 silent error exit sites in main.rs to print error messages to stderr before exiting.",
+      "files_in_scope": [
+        "src/main.rs"
+      ],
+      "changes": [
+        {
+          "path": "src/main.rs",
+          "action": "modify",
+          "guidance": "Fix four silent error exit sites in main.rs where errors are discarded without printing to stderr:\n\n**(1) File write error (lines 88-90)**: Change:\n```rust\nif rust_workspace_map::render::render_to_writer(&map, writer).is_err() {\n    std::process::exit(1);\n}\n```\nTo:\n```rust\nif let Err(e) = rust_workspace_map::render::render_to_writer(&map, writer) {\n    eprintln!(\"error writing JSON to file: {e}\");\n    std::process::exit(1);\n}\n```\nUse plain `{e}` for simple I/O errors.\n\n**(2) Stdout write error (lines 93-95)**: Same pattern, change to `if let Err(e)` with `eprintln!(\"error writing JSON to stdout: {e}\")`.\n\n**(3) Pipeline error (lines 102-104)**: Change `Err(_)` to `Err(e)` and add `eprintln!(\"error: {e:#}\")` before `exit(1)`. Use `{e:#}` (alternate format) for anyhow error chains \u2014 this produces multi-line output with context.\n\n**(4) Lookup pipeline error (lines 165-167)**: Same pattern as (3) \u2014 `Err(e) => { eprintln!(\"error: {e:#}\"); std::process::exit(1); }`.\n\n**Do NOT change**:\n- Validation exit (lines 98-100): exit code 2 is intentional for validation findings; stderr is intentionally silent.\n- Lookup serialization errors (lines 123-128, 140-145): these already print messages to stderr before exiting."
+        }
+      ],
+      "wiring_checklist": [],
+      "acceptance": [
+        "cargo check --workspace",
+        "cargo clippy -- -D warnings"
+      ],
+      "depends_on": []
+    }
+  ]
+}

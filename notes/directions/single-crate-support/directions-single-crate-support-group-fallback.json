@@ -1,0 +1,77 @@
+{
+  "meta": {
+    "title": "Single-Crate Support + Fix Silent Error Handling",
+    "source_branch": "single-crate-support"
+  },
+  "architecture_notes": [
+    "Auto-detect: try workspace discovery first; on WorkspaceRootNotFound or MissingWorkspaceSection, fall back to single-crate discovery. No new CLI flags.",
+    "Two separate functions: find_workspace_root (looks for [workspace]) and find_crate_root (looks for [package]). A combined function would stop at a workspace member's Cargo.toml.",
+    "D1 enhancement: catch MissingWorkspaceSection from enumerate_members as a fallback trigger, not just WorkspaceRootNotFound. This handles the false positive where Cargo.toml contains '[workspace]' as a comment or string literal.",
+    "validate::validate path safety confirmed \u2014 check_orphan_files joins workspace_root with crate_info.root which is always workspace-relative; safe in both multi-crate and single-crate modes.",
+    "workspace_name in single-crate mode will be the crate directory name (e.g., 'rust-workspace-map') derived from workspace_root.file_name().",
+    "find_crate_root must structurally mirror find_workspace_root: same ancestors() walk, same FileRead error mapping, same .contains() check style, same doc-comment structure with # Errors section.",
+    "Orchestration lives in lib.rs:build_map \u2014 workspace.rs remains pure with single-responsibility functions.",
+    "All changes stay within the single rust-workspace-map crate. No new crates introduced.",
+    "Library code in this phase follows ch12-04 TDD: tests claim interfaces first via tdd_interface, then implementations evolve to meet them. See the tdd-pattern.md reference for the full workflow."
+  ],
+  "known_pitfalls": [
+    "lib.rs line 18-21 does NOT import schema::Error \u2014 must add Error to the use schema::{...} import for the match pattern in TASK-pipeline-fallback.",
+    "relativize_path silently returns original path on strip_prefix failure \u2014 no error propagation, works correctly because crate_info.root paths are always workspace-relative.",
+    "workspace_name is derived from workspace_root.file_name().unwrap_or_default(). In single-crate mode this is the crate directory name, which is reasonable.",
+    "D1 enhancement nests a second match inside the Ok(root) arm: match enumerate_members, catch MissingWorkspaceSection as fallback trigger alongside the outer WorkspaceRootNotFound.",
+    "MissingWorkspaceSection false positive: Cargo.toml with '[workspace]' in a comment or string literal triggers find_workspace_root to return Ok, but enumerate_members fails. The D1 enhancement catches this.",
+    "TASK-test-single-crate-module-tree MUST exercise depth >= 2 submodule resolution (e.g., lib -> helpers/mod.rs -> helpers/sub.rs).",
+    "Do NOT touch these modules: cargo_info.rs, file_parser.rs, module_tree.rs, cross_refs.rs, render.rs, validate.rs, indexes.rs, lookup.rs.",
+    "No new CLI flags \u2014 the feature is auto-detect only. Do not add --single-crate or similar flags.",
+    "Both find_workspace_root and find_crate_root use .contains() (string match) rather than toml parsing. This is consistent with existing code. The D1 MissingWorkspaceSection fallback mitigates the false-positive risk.",
+    "unit tests in workspace.rs use the existing write_cargo_toml and setup_crate helpers (one-param version). Integration tests use the separate setup_crate(dir, lib_content) helper (two-param version)."
+  ],
+  "task_groups": [
+    {
+      "group_id": "group-fallback",
+      "reason": "Pipeline fallback logic depends on group-core (needs find_crate_root and CrateRootNotFound).",
+      "tasks": [
+        "TASK-pipeline-fallback"
+      ],
+      "depends_on_groups": [
+        "group-core"
+      ]
+    }
+  ],
+  "tasks": [
+    {
+      "id": "TASK-pipeline-fallback",
+      "kind": "direct",
+      "description": "Modify build_map in lib.rs to add fallback logic: try workspace discovery first, fall back to single-crate on WorkspaceRootNotFound or MissingWorkspaceSection.",
+      "files_in_scope": [
+        "src/lib.rs"
+      ],
+      "changes": [
+        {
+          "path": "src/lib.rs",
+          "action": "modify",
+          "guidance": "Two changes to src/lib.rs:\n\n**(1) Add Error import**: On line 18-21, the `use schema::{...}` block currently imports CrateInfo, CrateType, DiagnosticKind, ErrorEntry, ErrorSeverity, ModuleInfo, WorkspaceInfo, WorkspaceMap. Add `Error` to this import. The block should include `Error` alongside the existing types.\n\n**(2) Replace workspace discovery lines (37-38) with fallback match**: Replace the two lines:\n```rust\nlet workspace_root = workspace::find_workspace_root(&config.workspace_path)?;\nlet member_dirs = workspace::enumerate_members(&workspace_root)?;\n```\n\nWith a match expression that tries workspace discovery first, then falls back. The structure:\n```rust\nlet (workspace_root, member_dirs) = match workspace::find_workspace_root(&config.workspace_path) {\n    Ok(root) => {\n        match workspace::enumerate_members(&root) {\n            Ok(members) => (root, members),\n            Err(Error::MissingWorkspaceSection) => {\n                // [workspace] was a false positive (e.g., in a comment).\n                // Fall back to single-crate discovery.\n                let crate_dir = workspace::find_crate_root(&config.workspace_path)?;\n                (crate_dir.clone(), vec![crate_dir])\n            }\n            Err(other) => return Err(other.into()),\n        }\n    }\n    Err(Error::WorkspaceRootNotFound(_)) => {\n        let crate_dir = workspace::find_crate_root(&config.workspace_path)?;\n        (crate_dir.clone(), vec![crate_dir])\n    }\n    Err(other) => return Err(other.into()),\n};\n```\n\nKey points:\n- The inner match on enumerate_members handles the D1 false-positive case where Cargo.toml contains \"[workspace]\" as a literal string but no actual workspace section.\n- The fallback path is identical for both MissingWorkspaceSection and WorkspaceRootNotFound: find_crate_root then create a single-element vec.\n- Other errors (TomlParse, FileRead, etc.) propagate as fatal.\n- workspace_root is set to crate_dir in fallback mode; member_dirs is vec![crate_dir].\n- The rest of build_map (lines 40-171) works unchanged \u2014 it uses workspace_root and member_dirs identically regardless of discovery path.\n\nThe function signature and return type do NOT change."
+        }
+      ],
+      "wiring_checklist": [
+        {
+          "kind": "fn_call",
+          "file": "src/lib.rs",
+          "detail": "build_map calls workspace::find_crate_root in two fallback branches (MissingWorkspaceSection and WorkspaceRootNotFound)"
+        },
+        {
+          "kind": "type_annotation",
+          "file": "src/lib.rs",
+          "detail": "schema::Error is imported for the match patterns on Error::WorkspaceRootNotFound and Error::MissingWorkspaceSection"
+        }
+      ],
+      "acceptance": [
+        "cargo check --workspace",
+        "cargo clippy -- -D warnings"
+      ],
+      "depends_on": [
+        "TASK-single-crate-core-02"
+      ]
+    }
+  ]
+}
