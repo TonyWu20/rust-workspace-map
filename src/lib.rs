@@ -16,7 +16,7 @@ pub use schema::Config;
 use anyhow::Context;
 use rayon::prelude::*;
 use schema::{
-    CrateInfo, CrateType, DiagnosticKind, ErrorEntry, ErrorSeverity, ModuleInfo,
+    CrateInfo, CrateType, DiagnosticKind, Error, ErrorEntry, ErrorSeverity, ModuleInfo,
     WorkspaceInfo, WorkspaceMap,
 };
 use std::path::Path;
@@ -34,8 +34,25 @@ use std::path::Path;
 /// parsed, or the JSON output cannot be written.
 #[allow(clippy::too_many_lines)]
 pub fn build_map(config: &Config) -> anyhow::Result<WorkspaceMap> {
-    let workspace_root = workspace::find_workspace_root(&config.workspace_path)?;
-    let member_dirs = workspace::enumerate_members(&workspace_root)?;
+    let (workspace_root, member_dirs) = match workspace::find_workspace_root(&config.workspace_path) {
+        Ok(root) => {
+            match workspace::enumerate_members(&root) {
+                Ok(members) => (root, members),
+                Err(Error::MissingWorkspaceSection) => {
+                    // [workspace] was a false positive (e.g., in a comment).
+                    // Fall back to single-crate discovery.
+                    let crate_dir = workspace::find_crate_root(&config.workspace_path)?;
+                    (crate_dir.clone(), vec![crate_dir])
+                }
+                Err(other) => return Err(other.into()),
+            }
+        }
+        Err(Error::WorkspaceRootNotFound(_)) => {
+            let crate_dir = workspace::find_crate_root(&config.workspace_path)?;
+            (crate_dir.clone(), vec![crate_dir])
+        }
+        Err(other) => return Err(other.into()),
+    };
 
     let mut crate_errors: Vec<ErrorEntry> = Vec::new();
 
